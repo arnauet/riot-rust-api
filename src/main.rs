@@ -3,6 +3,7 @@ use std::env;
 use std::path::PathBuf;
 
 mod riot_api;
+mod stats;
 
 // Example usage:
 // cargo run -- --game-name "DeadlyBubble" --tag-line "EUW"
@@ -55,6 +56,24 @@ enum Commands {
         #[arg(long = "out-dir", default_value = "data/raw/matches")]
         out_dir: String,
     },
+
+    /// Extract basic stats for downloaded matches and save them to CSV
+    ExtractStats {
+        /// Player Universal Unique Identifier (can also come from RIOT_PUUID env var)
+        #[arg(long = "puuid")]
+        puuid: Option<String>,
+
+        /// Directory containing downloaded match JSON files
+        #[arg(long = "matches-dir", default_value = "data/raw/matches")]
+        matches_dir: String,
+
+        /// Output CSV file path
+        #[arg(
+            long = "out-file",
+            default_value = "data/processed/deadlybubble_basic.csv"
+        )]
+        out_file: String,
+    },
 }
 
 #[tokio::main]
@@ -63,18 +82,7 @@ async fn main() {
 
     match &args.command {
         Some(Commands::Matches { puuid, count }) => {
-            let puuid_str = match puuid {
-                Some(value) if !value.trim().is_empty() => value.clone(),
-                _ => match env::var("RIOT_PUUID") {
-                    Ok(env_value) if !env_value.trim().is_empty() => env_value,
-                    _ => {
-                        eprintln!(
-                            "You must provide --puuid or define RIOT_PUUID in the environment"
-                        );
-                        std::process::exit(1);
-                    }
-                },
-            };
+            let puuid_str = resolve_puuid(puuid);
 
             match riot_api::get_match_ids_by_puuid(&puuid_str, *count).await {
                 Ok(match_ids) => {
@@ -94,18 +102,7 @@ async fn main() {
             count,
             out_dir,
         }) => {
-            let puuid_str = match puuid {
-                Some(value) if !value.trim().is_empty() => value.clone(),
-                _ => match env::var("RIOT_PUUID") {
-                    Ok(env_value) if !env_value.trim().is_empty() => env_value,
-                    _ => {
-                        eprintln!(
-                            "You must provide --puuid or define RIOT_PUUID in the environment"
-                        );
-                        std::process::exit(1);
-                    }
-                },
-            };
+            let puuid_str = resolve_puuid(puuid);
 
             let out_path = PathBuf::from(out_dir);
 
@@ -117,6 +114,23 @@ async fn main() {
                     eprintln!("Error downloading matches: {}", err);
                     std::process::exit(1);
                 }
+            }
+        }
+        Some(Commands::ExtractStats {
+            puuid,
+            matches_dir,
+            out_file,
+        }) => {
+            let puuid_str = resolve_puuid(puuid);
+
+            let matches_path = PathBuf::from(matches_dir);
+            let out_path = PathBuf::from(out_file);
+
+            if let Err(err) =
+                stats::extract_basic_stats_for_puuid(&puuid_str, &matches_path, &out_path)
+            {
+                eprintln!("Error extracting stats: {}", err);
+                std::process::exit(1);
             }
         }
         None => {
@@ -138,5 +152,18 @@ async fn main() {
                 }
             }
         }
+    }
+}
+
+fn resolve_puuid(puuid_arg: &Option<String>) -> String {
+    match puuid_arg {
+        Some(value) if !value.trim().is_empty() => value.clone(),
+        _ => match env::var("RIOT_PUUID") {
+            Ok(env_value) if !env_value.trim().is_empty() => env_value,
+            _ => {
+                eprintln!("You must provide --puuid or define RIOT_PUUID in the environment");
+                std::process::exit(1);
+            }
+        },
     }
 }
