@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::env;
 
 mod riot_api;
 
@@ -27,8 +28,8 @@ enum Commands {
     /// List match IDs for a given PUUID
     Matches {
         /// Player Universal Unique Identifier (can also come from RIOT_PUUID env var)
-        #[arg(long = "puuid", env = "RIOT_PUUID")]
-        puuid: String,
+        #[arg(long = "puuid")]
+        puuid: Option<String>,
 
         /// Number of matches to retrieve (default 20)
         #[arg(long = "count", default_value_t = 20)]
@@ -42,7 +43,20 @@ async fn main() {
 
     match &args.command {
         Some(Commands::Matches { puuid, count }) => {
-            match riot_api::get_match_ids_by_puuid(puuid, *count).await {
+            let puuid_str = match puuid {
+                Some(value) if !value.trim().is_empty() => value.clone(),
+                _ => match env::var("RIOT_PUUID") {
+                    Ok(env_value) if !env_value.trim().is_empty() => env_value,
+                    _ => {
+                        eprintln!(
+                            "You must provide --puuid or define RIOT_PUUID in the environment"
+                        );
+                        std::process::exit(1);
+                    }
+                },
+            };
+
+            match riot_api::get_match_ids_by_puuid(&puuid_str, *count).await {
                 Ok(match_ids) => {
                     eprintln!("Fetched {} match IDs", match_ids.len());
                     for id in match_ids {
