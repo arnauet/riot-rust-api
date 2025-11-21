@@ -2,12 +2,12 @@ use clap::{Parser, Subcommand};
 
 mod riot_api;
 
+// Example usage:
+// cargo run -- --game-name "DeadlyBubble" --tag-line "EUW"
+// RIOT_PUUID="..." cargo run -- matches --count 10
+
 #[derive(Parser, Debug)]
-#[command(
-    name = "riot-rust-api",
-    about = "CLI client for Riot Games API",
-    version
-)]
+#[command(name = "riot-rust-api", about = "CLI client for Riot Games API", version)]
 struct Cli {
     /// Optional subcommand for additional actions
     #[command(subcommand)]
@@ -26,8 +26,8 @@ struct Cli {
 enum Commands {
     /// List match IDs for a given PUUID
     Matches {
-        /// Player Universal Unique Identifier
-        #[arg(long = "puuid")]
+        /// Player Universal Unique Identifier (can also come from RIOT_PUUID env var)
+        #[arg(long = "puuid", env = "RIOT_PUUID")]
         puuid: String,
 
         /// Number of matches to retrieve (default 20)
@@ -40,48 +40,39 @@ enum Commands {
 async fn main() {
     let args = Cli::parse();
 
-    // Si hay subcomando, lo usamos
-    if let Some(command) = &args.command {
-        match command {
-            Commands::Matches { puuid, count } => {
-                match riot_api::get_match_ids_by_puuid(puuid, *count).await {
-                    Ok(match_ids) => {
-                        for id in match_ids {
-                            println!("{id}");
-                        }
+    match &args.command {
+        Some(Commands::Matches { puuid, count }) => {
+            match riot_api::get_match_ids_by_puuid(puuid, *count).await {
+                Ok(match_ids) => {
+                    eprintln!("Fetched {} match IDs", match_ids.len());
+                    for id in match_ids {
+                        println!("{}", id);
                     }
-                    Err(err) => {
-                        eprintln!("Error fetching match IDs: {err}");
-                        std::process::exit(1);
-                    }
+                }
+                Err(err) => {
+                    eprintln!("Error fetching match IDs: {}", err);
+                    std::process::exit(1);
                 }
             }
         }
-    } else {
-        // Modo “por defecto”: obtener PUUID a partir de game name + tag line
-        let game_name = match &args.game_name {
-            Some(s) if !s.is_empty() => s,
-            _ => {
-                eprintln!("--game-name es obligatorio si no usas subcomando");
+        None => {
+            let game_name = args.game_name.as_deref().unwrap_or("");
+            let tag_line = args.tag_line.as_deref().unwrap_or("");
+
+            if game_name.is_empty() || tag_line.is_empty() {
+                eprintln!(
+                    "Both --game-name and --tag-line must be provided when not using a subcommand"
+                );
                 std::process::exit(1);
             }
-        };
 
-        let tag_line = match &args.tag_line {
-            Some(s) if !s.is_empty() => s,
-            _ => {
-                eprintln!("--tag-line es obligatorio si no usas subcomando");
-                std::process::exit(1);
-            }
-        };
-
-        match riot_api::get_puuid(game_name, tag_line).await {
-            Ok(puuid) => println!("{puuid}"),
-            Err(err) => {
-                eprintln!("Error fetching PUUID: {err}");
-                std::process::exit(1);
+            match riot_api::get_puuid(game_name, tag_line).await {
+                Ok(puuid) => println!("{}", puuid),
+                Err(err) => {
+                    eprintln!("Error fetching PUUID: {}", err);
+                    std::process::exit(1);
+                }
             }
         }
     }
 }
-
