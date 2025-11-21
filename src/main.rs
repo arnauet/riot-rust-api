@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::env;
+use std::path::PathBuf;
 
 mod riot_api;
 
@@ -8,7 +9,11 @@ mod riot_api;
 // RIOT_PUUID="..." cargo run -- matches --count 10
 
 #[derive(Parser, Debug)]
-#[command(name = "riot-rust-api", about = "CLI client for Riot Games API", version)]
+#[command(
+    name = "riot-rust-api",
+    about = "CLI client for Riot Games API",
+    version
+)]
 struct Cli {
     /// Optional subcommand for additional actions
     #[command(subcommand)]
@@ -34,6 +39,21 @@ enum Commands {
         /// Number of matches to retrieve (default 20)
         #[arg(long = "count", default_value_t = 20)]
         count: usize,
+    },
+
+    /// Download match JSON payloads for a given PUUID and save to disk
+    DownloadMatches {
+        /// Player Universal Unique Identifier (can also come from RIOT_PUUID env var)
+        #[arg(long = "puuid")]
+        puuid: Option<String>,
+
+        /// Number of matches to download
+        #[arg(long = "count", default_value_t = 20)]
+        count: usize,
+
+        /// Output directory for saved match JSON files
+        #[arg(long = "out-dir", default_value = "data/raw/matches")]
+        out_dir: String,
     },
 }
 
@@ -65,6 +85,36 @@ async fn main() {
                 }
                 Err(err) => {
                     eprintln!("Error fetching match IDs: {}", err);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Some(Commands::DownloadMatches {
+            puuid,
+            count,
+            out_dir,
+        }) => {
+            let puuid_str = match puuid {
+                Some(value) if !value.trim().is_empty() => value.clone(),
+                _ => match env::var("RIOT_PUUID") {
+                    Ok(env_value) if !env_value.trim().is_empty() => env_value,
+                    _ => {
+                        eprintln!(
+                            "You must provide --puuid or define RIOT_PUUID in the environment"
+                        );
+                        std::process::exit(1);
+                    }
+                },
+            };
+
+            let out_path = PathBuf::from(out_dir);
+
+            match riot_api::download_and_save_matches(&puuid_str, *count, &out_path).await {
+                Ok(()) => {
+                    eprintln!("Saved {} matches to {}", count, out_dir);
+                }
+                Err(err) => {
+                    eprintln!("Error downloading matches: {}", err);
                     std::process::exit(1);
                 }
             }
