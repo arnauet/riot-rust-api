@@ -11,6 +11,7 @@ Rust CLI to interact with the Riot API and work with downloaded matches.
 - List match IDs for a given PUUID.
 - Download matches and save them as JSON files.
 - Extract basic statistics from downloaded matches into a CSV file.
+- Crawl from seed PUUIDs to discover and download matches with a rate-limited crawler.
 
 ## Usage examples
 
@@ -36,6 +37,16 @@ RIOT_PUUID="..." cargo run -- download-matches \
 RIOT_PUUID="..." cargo run -- extract-stats \
   --matches-dir data/raw/matches \
   --out-file data/processed/deadlybubble_basic.csv
+```
+
+### Crawl matches starting from seed PUUIDs
+```bash
+cargo run -- sniff \
+  --seed-puuid PUUID_ONE --seed-puuid PUUID_TWO \
+  --duration-mins 30 \
+  --out-dir data/raw/sniffed \
+  --max-req-per-2min 80 \
+  --max-matches-per-player 100
 ```
 
 ### Fields parsed into the CSV

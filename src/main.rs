@@ -3,6 +3,7 @@ use std::env;
 use std::path::PathBuf;
 
 mod riot_api;
+mod sniff;
 mod stats;
 
 // Example usage:
@@ -74,6 +75,29 @@ enum Commands {
         )]
         out_file: String,
     },
+
+    /// Crawl matches starting from seed PUUIDs, discovering new players along the way
+    Sniff {
+        /// Seed PUUIDs to start crawling from (at least one required)
+        #[arg(long = "seed-puuid")]
+        seed_puuid: Vec<String>,
+
+        /// Duration in minutes for how long the crawler should run
+        #[arg(long = "duration-mins")]
+        duration_mins: u64,
+
+        /// Output directory where downloaded match JSON files will be written
+        #[arg(long = "out-dir")]
+        out_dir: String,
+
+        /// Maximum requests allowed in any 2-minute window (default 80 for safety)
+        #[arg(long = "max-req-per-2min", default_value_t = 80)]
+        max_req_per_2min: usize,
+
+        /// Maximum unique matches to download per player
+        #[arg(long = "max-matches-per-player", default_value_t = 100)]
+        max_matches_per_player: usize,
+    },
 }
 
 #[tokio::main]
@@ -130,6 +154,39 @@ async fn main() {
                 stats::extract_basic_stats_for_puuid(&puuid_str, &matches_path, &out_path)
             {
                 eprintln!("Error extracting stats: {}", err);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Sniff {
+            seed_puuid,
+            duration_mins,
+            out_dir,
+            max_req_per_2min,
+            max_matches_per_player,
+        }) => {
+            if seed_puuid.is_empty() {
+                eprintln!("You must provide at least one --seed-puuid for sniffing");
+                std::process::exit(1);
+            }
+
+            let client = match riot_api::RiotClient::new() {
+                Ok(client) => client,
+                Err(err) => {
+                    eprintln!("Failed to create Riot API client: {}", err);
+                    std::process::exit(1);
+                }
+            };
+
+            let args = sniff::SniffArgs {
+                seed_puuids: seed_puuid.clone(),
+                duration_mins: *duration_mins,
+                out_dir: PathBuf::from(out_dir),
+                max_req_per_2min: *max_req_per_2min,
+                max_matches_per_player: *max_matches_per_player,
+            };
+
+            if let Err(err) = sniff::run_sniff(args, client).await {
+                eprintln!("Error running sniff crawler: {}", err);
                 std::process::exit(1);
             }
         }
