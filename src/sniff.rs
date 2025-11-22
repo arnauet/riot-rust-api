@@ -1,4 +1,4 @@
-use crate::riot_api::{RateLimiter, RiotClient};
+use crate::riot_api::RiotClient;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
@@ -18,13 +18,16 @@ pub struct SniffArgs {
 pub async fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&args.out_dir)?;
 
+    eprintln!(
+        "Starting sniff with max {} requests per 2 minutes",
+        args.max_req_per_2min
+    );
+
     let mut queue: VecDeque<String> = args.seed_puuids.iter().cloned().collect();
     let mut seen_puuids: HashSet<String> = args.seed_puuids.iter().cloned().collect();
     let mut seen_match_ids: HashSet<String> = HashSet::new();
     let mut matches_per_player: HashMap<String, usize> = HashMap::new();
     let mut downloaded_matches: usize = 0;
-
-    let mut rate_limiter = RateLimiter::new(args.max_req_per_2min, Duration::from_secs(120));
     let start = Instant::now();
     let max_duration = Duration::from_secs(args.duration_mins * 60);
 
@@ -36,11 +39,8 @@ pub async fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dy
 
         let mut downloaded_for_puuid = *matches_per_player.get(&puuid).unwrap_or(&0);
 
-        // Get up to 100 match IDs for this player respecting the rate limiter.
-        let match_ids = match client
-            .get_match_ids_by_puuid(&puuid, 100, Some(&mut rate_limiter))
-            .await
-        {
+        // Get up to 100 match IDs for this player using the shared rate limiter.
+        let match_ids = match client.get_match_ids_by_puuid(&puuid, 100).await {
             Ok(ids) => ids,
             Err(err) => {
                 eprintln!("Failed to fetch match IDs for {}: {}", puuid, err);
@@ -57,10 +57,7 @@ pub async fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dy
                 continue;
             }
 
-            let match_json: Value = match client
-                .get_match_json(&match_id, Some(&mut rate_limiter))
-                .await
-            {
+            let match_json: Value = match client.get_match_json(&match_id).await {
                 Ok(json) => json,
                 Err(err) => {
                     eprintln!("Failed to fetch match {}: {}", match_id, err);

@@ -169,7 +169,7 @@ async fn main() {
                 std::process::exit(1);
             }
 
-            let client = match riot_api::RiotClient::new() {
+            let client = match riot_api::RiotClient::new_with_max(*max_req_per_2min) {
                 Ok(client) => client,
                 Err(err) => {
                     eprintln!("Failed to create Riot API client: {}", err);
