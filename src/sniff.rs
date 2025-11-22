@@ -15,7 +15,7 @@ pub struct SniffArgs {
     pub max_matches_per_player: usize,
 }
 
-pub async fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dyn Error>> {
+pub fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&args.out_dir)?;
 
     eprintln!(
@@ -40,7 +40,7 @@ pub async fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dy
         let mut downloaded_for_puuid = *matches_per_player.get(&puuid).unwrap_or(&0);
 
         // Get up to 100 match IDs for this player using the shared rate limiter.
-        let match_ids = match client.get_match_ids_by_puuid(&puuid, 100).await {
+        let match_ids = match client.get_match_ids_by_puuid(&puuid, 100) {
             Ok(ids) => ids,
             Err(err) => {
                 eprintln!("Failed to fetch match IDs for {}: {}", puuid, err);
@@ -57,7 +57,7 @@ pub async fn run_sniff(args: SniffArgs, client: RiotClient) -> Result<(), Box<dy
                 continue;
             }
 
-            let match_json: Value = match client.get_match_json(&match_id).await {
+            let match_json: Value = match client.get_match_json(&match_id) {
                 Ok(json) => json,
                 Err(err) => {
                     eprintln!("Failed to fetch match {}: {}", match_id, err);

@@ -1,4 +1,5 @@
 use reqwest::StatusCode;
+use reqwest::blocking::Client;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue, RETRY_AFTER};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -8,10 +9,9 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
-use tokio::time::{Instant as TokioInstant, sleep, sleep_until};
 
 const BASE_URL: &str = "https://europe.api.riotgames.com";
 const DEFAULT_MAX_REQS_PER_2MIN: usize = 80;
@@ -34,7 +34,7 @@ fn build_headers() -> Result<HeaderMap, Box<dyn Error>> {
 }
 
 pub struct RiotClient {
-    client: reqwest::Client,
+    client: Client,
     headers: HeaderMap,
 }
 
@@ -43,7 +43,7 @@ impl RiotClient {
         global_rate_limiter();
 
         Ok(Self {
-            client: reqwest::Client::new(),
+            client: Client::new(),
             headers: build_headers()?,
         })
     }
@@ -53,17 +53,19 @@ impl RiotClient {
 
         {
             let limiter = global_rate_limiter();
-            let mut guard = limiter.blocking_lock();
+            let mut guard = limiter
+                .lock()
+                .expect("Rate limiter mutex poisoned while setting max");
             guard.set_max_reqs_per_2min(max_reqs_per_2min);
         }
 
         Ok(Self {
-            client: reqwest::Client::new(),
+            client: Client::new(),
             headers: build_headers()?,
         })
     }
 
-    pub async fn get_match_ids_by_puuid(
+    pub fn get_match_ids_by_puuid(
         &self,
         puuid: &str,
         count: usize,
@@ -73,19 +75,16 @@ impl RiotClient {
             BASE_URL, puuid, count
         );
 
-        self.get_json(&url).await
+        self.get_json(&url)
     }
 
-    pub async fn get_match_json(
-        &self,
-        match_id: &str,
-    ) -> Result<Value, Box<dyn std::error::Error>> {
+    pub fn get_match_json(&self, match_id: &str) -> Result<Value, Box<dyn std::error::Error>> {
         let url = format!("{}/lol/match/v5/matches/{}", BASE_URL, match_id);
 
-        self.get_json(&url).await
+        self.get_json(&url)
     }
 
-    pub async fn get_account_by_riot_id(
+    pub fn get_account_by_riot_id(
         &self,
         game_name: &str,
         tag_line: &str,
@@ -95,42 +94,46 @@ impl RiotClient {
             BASE_URL, game_name, tag_line
         );
 
-        self.get_json(&url).await
+        self.get_json(&url)
     }
 
-    async fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, Box<dyn Error>> {
-        let response = self.request_with_retry(url).await?;
-        Ok(response.json().await?)
+    fn get_json<T: DeserializeOwned>(&self, url: &str) -> Result<T, Box<dyn Error>> {
+        let response = self.request_with_retry(url)?;
+        Ok(response.json()?)
     }
 
-    async fn request_with_retry(&self, url: &str) -> Result<reqwest::Response, Box<dyn Error>> {
+    fn request_with_retry(&self, url: &str) -> Result<reqwest::blocking::Response, Box<dyn Error>> {
         const MAX_ATTEMPTS: usize = 2;
         let mut attempt = 0;
 
         loop {
             attempt += 1;
 
-            wait_global_rate_limit().await;
+            wait_global_rate_limit();
 
-            let response = self
-                .client
-                .get(url)
-                .headers(self.headers.clone())
-                .send()
-                .await?;
+            let response = self.client.get(url).headers(self.headers.clone()).send()?;
 
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 if attempt >= MAX_ATTEMPTS {
-                    return Err("Received HTTP 429 Too Many Requests twice".into());
+                    return Err(format!("Too many requests for URL {}", url).into());
                 }
 
-                let retry_after = parse_retry_after(&response).unwrap_or(Duration::from_secs(10));
-                sleep(retry_after).await;
+                if let Some(retry_after) = parse_retry_after(&response) {
+                    sleep(retry_after);
+                } else {
+                    sleep(Duration::from_secs(10));
+                }
+
                 continue;
             }
 
             if !response.status().is_success() {
-                return Err(format!("Request failed with status {}", response.status()).into());
+                return Err(format!(
+                    "Request to {} failed with status {}",
+                    url,
+                    response.status()
+                )
+                .into());
             }
 
             return Ok(response);
@@ -159,36 +162,33 @@ impl RateLimiter {
         self.max_reqs_per_2min = max_reqs_per_2min;
     }
 
-    pub async fn wait(&mut self) {
+    pub fn wait(&mut self) {
         loop {
             let now = Instant::now();
             self.prune(now);
 
-            let mut sleep_until_instant: Option<TokioInstant> = None;
+            let mut sleep_duration: Option<Duration> = None;
 
             if self.timestamps_1s.len() >= self.max_reqs_per_sec {
                 if let Some(oldest) = self.timestamps_1s.front() {
                     let elapsed = now.duration_since(*oldest);
                     if elapsed < Duration::from_secs(1) {
-                        sleep_until_instant =
-                            Some(TokioInstant::now() + (Duration::from_secs(1) - elapsed));
+                        sleep_duration = Some(Duration::from_secs(1) - elapsed);
                     }
                 }
             }
 
-            if sleep_until_instant.is_none() && self.timestamps_2min.len() >= self.max_reqs_per_2min
-            {
+            if sleep_duration.is_none() && self.timestamps_2min.len() >= self.max_reqs_per_2min {
                 if let Some(oldest) = self.timestamps_2min.front() {
                     let elapsed = now.duration_since(*oldest);
                     if elapsed < Duration::from_secs(120) {
-                        sleep_until_instant =
-                            Some(TokioInstant::now() + (Duration::from_secs(120) - elapsed));
+                        sleep_duration = Some(Duration::from_secs(120) - elapsed);
                     }
                 }
             }
 
-            if let Some(deadline) = sleep_until_instant {
-                sleep_until(deadline).await;
+            if let Some(duration) = sleep_duration {
+                sleep(duration);
                 continue;
             }
 
@@ -227,13 +227,15 @@ fn global_rate_limiter() -> &'static Mutex<RateLimiter> {
     })
 }
 
-async fn wait_global_rate_limit() {
+fn wait_global_rate_limit() {
     let limiter = global_rate_limiter();
-    let mut guard = limiter.lock().await;
-    guard.wait().await;
+    let mut guard = limiter
+        .lock()
+        .expect("Rate limiter mutex poisoned while waiting");
+    guard.wait();
 }
 
-fn parse_retry_after(response: &reqwest::Response) -> Option<Duration> {
+fn parse_retry_after(response: &reqwest::blocking::Response) -> Option<Duration> {
     response
         .headers()
         .get(RETRY_AFTER)
@@ -242,39 +244,39 @@ fn parse_retry_after(response: &reqwest::Response) -> Option<Duration> {
         .map(Duration::from_secs)
 }
 
-pub async fn get_puuid(game_name: &str, tag_line: &str) -> Result<String, Box<dyn Error>> {
+pub fn get_puuid(game_name: &str, tag_line: &str) -> Result<String, Box<dyn Error>> {
     let client = RiotClient::new()?;
-    let account = client.get_account_by_riot_id(game_name, tag_line).await?;
+    let account = client.get_account_by_riot_id(game_name, tag_line)?;
     Ok(account.puuid)
 }
 
-pub async fn get_match_ids_by_puuid(
+pub fn get_match_ids_by_puuid(
     puuid: &str,
     count: usize,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let client = RiotClient::new()?;
-    client.get_match_ids_by_puuid(puuid, count).await
+    client.get_match_ids_by_puuid(puuid, count)
 }
 
-pub async fn get_match_json(match_id: &str) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn get_match_json(match_id: &str) -> Result<Value, Box<dyn std::error::Error>> {
     let client = RiotClient::new()?;
-    client.get_match_json(match_id).await
+    client.get_match_json(match_id)
 }
 
-pub async fn download_and_save_matches(
+pub fn download_and_save_matches(
     puuid: &str,
     count: usize,
     out_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(out_dir)?;
 
-    let match_ids = get_match_ids_by_puuid(puuid, count).await?;
+    let match_ids = get_match_ids_by_puuid(puuid, count)?;
     let total = match_ids.len();
 
     for (idx, match_id) in match_ids.iter().enumerate() {
         eprintln!("Downloading match {}/{}: {}", idx + 1, total, match_id);
 
-        let match_json = get_match_json(match_id).await?;
+        let match_json = get_match_json(match_id)?;
         let serialized = serde_json::to_vec_pretty(&match_json)?;
         let file_path = out_dir.join(format!("{}.json", match_id));
         fs::write(file_path, serialized)?;

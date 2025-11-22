@@ -100,15 +100,14 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = Cli::parse();
 
     match &args.command {
         Some(Commands::Matches { puuid, count }) => {
             let puuid_str = resolve_puuid(puuid);
 
-            match riot_api::get_match_ids_by_puuid(&puuid_str, *count).await {
+            match riot_api::get_match_ids_by_puuid(&puuid_str, *count) {
                 Ok(match_ids) => {
                     eprintln!("Fetched {} match IDs", match_ids.len());
                     for id in match_ids {
@@ -130,7 +129,7 @@ async fn main() {
 
             let out_path = PathBuf::from(out_dir);
 
-            match riot_api::download_and_save_matches(&puuid_str, *count, &out_path).await {
+            match riot_api::download_and_save_matches(&puuid_str, *count, &out_path) {
                 Ok(()) => {
                     eprintln!("Saved {} matches to {}", count, out_dir);
                 }
@@ -185,7 +184,7 @@ async fn main() {
                 max_matches_per_player: *max_matches_per_player,
             };
 
-            if let Err(err) = sniff::run_sniff(args, client).await {
+            if let Err(err) = sniff::run_sniff(args, client) {
                 eprintln!("Error running sniff crawler: {}", err);
                 std::process::exit(1);
             }
@@ -201,7 +200,7 @@ async fn main() {
                 std::process::exit(1);
             }
 
-            match riot_api::get_puuid(game_name, tag_line).await {
+            match riot_api::get_puuid(game_name, tag_line) {
                 Ok(puuid) => println!("{}", puuid),
                 Err(err) => {
                     eprintln!("Error fetching PUUID: {}", err);
