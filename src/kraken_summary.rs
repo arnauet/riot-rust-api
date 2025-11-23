@@ -4,7 +4,7 @@ use polars::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn format_ts_millis(ts: i64) -> String {
     DateTime::<Utc>::from_timestamp_millis(ts)
@@ -150,7 +150,7 @@ pub fn kraken_summary_player(
     let basic = lf
         .clone()
         .select([
-            len().alias("rows"),
+            len().alias("rows"), // CORREGIDO: count() -> len()
             col("match_id").n_unique().alias("matches"),
             col("puuid").n_unique().alias("players"),
         ])
@@ -166,7 +166,7 @@ pub fn kraken_summary_player(
     let queue_dist = lf
         .clone()
         .group_by([col("queue_id")])
-        .agg([len().alias("games")])
+        .agg([len().alias("games")]) // CORREGIDO: count() -> len()
         .sort(
             "games",
             SortOptions {
@@ -190,7 +190,7 @@ pub fn kraken_summary_player(
     let role_dist = lf
         .clone()
         .group_by([col("role")])
-        .agg([len().alias("games")])
+        .agg([len().alias("games")]) // CORREGIDO: count() -> len()
         .sort(
             "games",
             SortOptions {
@@ -235,7 +235,7 @@ pub fn kraken_summary_player(
             .clone()
             .group_by([col("champion_name")])
             .agg([
-                len().alias("games"),
+                len().alias("games"), // CORREGIDO: count() -> len()
                 col("win").cast(DataType::Float64).mean().alias("win_rate"),
             ])
             .sort(
@@ -268,7 +268,7 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
     let basic = lf
         .clone()
         .select([
-            len().alias("rows"),
+            len().alias("rows"), // CORREGIDO: count() -> len()
             col("match_id").n_unique().alias("matches"),
         ])
         .collect()?;
@@ -282,6 +282,40 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
         .sort("team_id", SortOptions::default())
         .collect()?;
     println!("SoloQ team winrate:\n{}", side_win);
+
+    Ok(())
+}
+
+/// Dispatches the appropriate summary function(s) based on provided arguments.
+/// Runs sequentially if multiple inputs are provided.
+pub fn run(
+    matches_dir: Option<PathBuf>,
+    player_parquet: Option<PathBuf>,
+    team_parquet: Option<PathBuf>,
+    max_files: Option<usize>,
+    max_rows: Option<usize>,
+    by_role: bool,
+    by_champion_top_k: Option<usize>,
+) -> Result<()> {
+    // Validation: Ensure at least one input source is provided.
+    if matches_dir.is_none() && player_parquet.is_none() && team_parquet.is_none() {
+        return Err(anyhow::anyhow!(
+            "You must provide at least one of --matches-dir, --player-parquet or --team-parquet"
+        ));
+    }
+
+    // Sequence: Raw -> Player -> Team
+    if let Some(path) = matches_dir {
+        kraken_summary_raw(&path, max_files)?;
+    }
+
+    if let Some(path) = player_parquet {
+        kraken_summary_player(&path, max_rows, by_role, by_champion_top_k)?;
+    }
+
+    if let Some(path) = team_parquet {
+        kraken_summary_team(&path, max_rows)?;
+    }
 
     Ok(())
 }
