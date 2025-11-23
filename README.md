@@ -75,6 +75,23 @@ cargo run -- kraken-eat \
   --duration-mins 10
 ```
 
+### Summaries for harvested data
+
+Lightweight checks straight from raw JSON:
+```bash
+cargo run -- kraken-summary \
+  --matches-dir data/raw/kraken_absorb_test \
+  --max-rows 500
+```
+
+Parquet-based summary with role and champion breakdowns:
+```bash
+cargo run -- kraken-summary \
+  --player-parquet data/processed/player_match.parquet \
+  --by-role \
+  --by-champion-top-k 20
+```
+
 ### Fields parsed into the CSV
 - `match_id`
 - `game_creation` (timestamp)

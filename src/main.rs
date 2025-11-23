@@ -3,6 +3,7 @@ use std::env;
 use std::path::PathBuf;
 
 mod kraken;
+mod kraken_summary;
 mod parquet_extract;
 mod riot_api;
 mod stats;
@@ -157,6 +158,33 @@ enum Commands {
         #[arg(long = "level")]
         level: String,
     },
+
+    /// Summarize harvested datasets from JSON or Parquet inputs
+    KrakenSummary {
+        /// Optional directory of raw match JSON files
+        #[arg(long = "matches-dir")]
+        matches_dir: Option<String>,
+
+        /// Optional player-level Parquet
+        #[arg(long = "player-parquet")]
+        player_parquet: Option<String>,
+
+        /// Optional team-level Parquet
+        #[arg(long = "team-parquet")]
+        team_parquet: Option<String>,
+
+        /// Optional cap for heavy operations
+        #[arg(long = "max-rows")]
+        max_rows: Option<usize>,
+
+        /// Show per-role stats (Parquet only)
+        #[arg(long = "by-role", default_value_t = false)]
+        by_role: bool,
+
+        /// Show top champions (Parquet only)
+        #[arg(long = "by-champion-top-k")]
+        by_champion_top_k: Option<usize>,
+    },
 }
 
 fn main() {
@@ -294,6 +322,45 @@ fn main() {
             {
                 eprintln!("Error extracting Parquet dataset: {}", err);
                 std::process::exit(1);
+            }
+        }
+        Some(Commands::KrakenSummary {
+            matches_dir,
+            player_parquet,
+            team_parquet,
+            max_rows,
+            by_role,
+            by_champion_top_k,
+        }) => {
+            if matches_dir.is_none() && player_parquet.is_none() {
+                eprintln!("You must provide --matches-dir or --player-parquet");
+                std::process::exit(1);
+            }
+
+            if let Some(dir) = matches_dir {
+                if let Err(err) = kraken_summary::kraken_summary_raw(&PathBuf::from(dir), *max_rows)
+                {
+                    eprintln!("Error summarizing raw matches: {}", err);
+                }
+            }
+
+            if let Some(parquet) = player_parquet {
+                if let Err(err) = kraken_summary::kraken_summary_player(
+                    &PathBuf::from(parquet),
+                    *max_rows,
+                    *by_role,
+                    *by_champion_top_k,
+                ) {
+                    eprintln!("Error summarizing player parquet: {}", err);
+                }
+            }
+
+            if let Some(parquet) = team_parquet {
+                if let Err(err) =
+                    kraken_summary::kraken_summary_team(&PathBuf::from(parquet), *max_rows)
+                {
+                    eprintln!("Error summarizing team parquet: {}", err);
+                }
             }
         }
         None => {
