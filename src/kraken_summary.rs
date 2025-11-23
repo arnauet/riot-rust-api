@@ -144,7 +144,7 @@ pub fn kraken_summary_player(
         ScanArgsParquet::default(),
     )?;
     if let Some(limit) = max_rows {
-        lf = lf.limit(limit);
+        lf = lf.limit(limit.try_into().unwrap_or(u32::MAX));
     }
 
     let basic = lf
@@ -246,7 +246,7 @@ pub fn kraken_summary_player(
                     ..Default::default()
                 },
             )
-            .limit(k)
+            .limit(k.try_into().unwrap_or(u32::MAX))
             .collect()?;
         println!("Top champions:\n{}", champ_stats);
     }
@@ -262,7 +262,7 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
         ScanArgsParquet::default(),
     )?;
     if let Some(limit) = max_rows {
-        lf = lf.limit(limit);
+        lf = lf.limit(limit.try_into().unwrap_or(u32::MAX));
     }
 
     let basic = lf
