@@ -100,6 +100,35 @@ cargo run -- kraken-summary \
   --by-champion-top-k 20
 ```
 
+### Build ML-ready datasets
+
+Player profiles (recent history per player-role):
+```bash
+cargo run -- kraken-prepare-ml \
+  --variant player-profile-only \
+  --player-parquet data/processed/player_match.parquet \
+  --out-dir data/ml \
+  --history-size 10 \
+  --min-matches 5
+```
+
+Team outcome dataset (per team per match, post-game stats as features):
+```bash
+cargo run -- kraken-prepare-ml \
+  --variant team-outcome \
+  --team-parquet data/processed/team_match.parquet \
+  --out-dir data/ml
+```
+
+Lobby outcome dataset (draft + optional profiles, no post-game leakage):
+```bash
+cargo run -- kraken-prepare-ml \
+  --variant lobby-outcome \
+  --player-parquet data/processed/player_match.parquet \
+  --team-parquet data/processed/team_match.parquet \
+  --out-dir data/ml
+```
+
 ### Fields parsed into the CSV
 - `match_id`
 - `game_creation` (timestamp)
@@ -120,4 +149,13 @@ cargo run -- kraken-summary \
 - `damage_to_champions`, `damage_to_objectives`, `damage_to_turrets`
 - `turret_takedowns`, `inhibitor_takedowns`, `vision_score`, `wards_placed`, `wards_killed`, `control_wards_placed`
 - Challenge-derived metrics (nullable): `damage_per_min`, `gold_per_min`, `team_damage_percentage`, `kill_participation`, `kda`, `vision_score_per_min`, `lane_minions_first10`, `jungle_cs_before10`
+
+### Columns written to Parquet (--level team)
+- `match_id`, `platform_id`, `queue_id`, `game_version`, `game_creation`, `game_duration`
+- `team_id`, `team_side`, `team_win`
+- `top_champion_id`, `jungle_champion_id`, `middle_champion_id`, `bottom_champion_id`, `utility_champion_id`
+- Aggregates: `team_kills`, `team_deaths`, `team_assists`, `team_gold_earned`, `team_damage_to_champions`, `team_vision_score`, `team_cs_total`
+- Per-minute metrics: `team_gold_per_min`, `team_damage_per_min`, `team_vision_score_per_min`, `team_cs_per_min`
+- Objectives: `team_towers_destroyed`, `team_inhibitors_destroyed`, `team_dragons`, `team_barons`, `team_heralds`, `team_plates`
+- First objectives (nullable): `first_blood`, `first_tower`, `first_inhibitor`, `first_baron`, `first_dragon`, `first_herald`
 

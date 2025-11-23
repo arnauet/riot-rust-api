@@ -3,6 +3,7 @@ use std::env;
 use std::path::PathBuf;
 
 mod kraken;
+mod kraken_prepare_ml;
 mod kraken_summary;
 mod parquet_extract;
 mod riot_api;
@@ -185,6 +186,33 @@ enum Commands {
         #[arg(long = "by-champion-top-k")]
         by_champion_top_k: Option<usize>,
     },
+
+    /// Build ML-ready Parquet datasets from harvested player/team parquets
+    KrakenPrepareMl {
+        /// Variant to build: team-outcome | player-profile-only | lobby-outcome
+        #[arg(long = "variant")]
+        variant: String,
+
+        /// Player-level parquet (required for profile/lobby variants)
+        #[arg(long = "player-parquet")]
+        player_parquet: Option<String>,
+
+        /// Team-level parquet (required for team-outcome/lobby variants)
+        #[arg(long = "team-parquet")]
+        team_parquet: Option<String>,
+
+        /// Output directory for generated ML parquets
+        #[arg(long = "out-dir")]
+        out_dir: String,
+
+        /// History size for player profiles
+        #[arg(long = "history-size", default_value_t = 10)]
+        history_size: usize,
+
+        /// Minimum matches required for a profile
+        #[arg(long = "min-matches", default_value_t = 5)]
+        min_matches: usize,
+    },
 }
 
 fn main() {
@@ -361,6 +389,26 @@ fn main() {
                 {
                     eprintln!("Error summarizing team parquet: {}", err);
                 }
+            }
+        }
+        Some(Commands::KrakenPrepareMl {
+            variant,
+            player_parquet,
+            team_parquet,
+            out_dir,
+            history_size,
+            min_matches,
+        }) => {
+            if let Err(err) = kraken_prepare_ml::kraken_prepare_ml_dispatch(
+                variant,
+                player_parquet.as_ref().map(PathBuf::from),
+                team_parquet.as_ref().map(PathBuf::from),
+                &PathBuf::from(out_dir),
+                *history_size,
+                *min_matches,
+            ) {
+                eprintln!("Error running kraken-prepare-ml: {}", err);
+                std::process::exit(1);
             }
         }
         None => {
