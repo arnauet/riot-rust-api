@@ -243,7 +243,7 @@ pub fn kraken_absorb_run(
                             &mut rank_cache,
                             client,
                             &mode,
-                            Some(max_new_focus - new_added_this_match),
+                            Some(max_new_focus.saturating_sub(new_added_this_match)),
                         )?;
                         if enqueued {
                             new_added_this_match += 1;
