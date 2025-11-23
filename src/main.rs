@@ -3,7 +3,6 @@ use std::env;
 use std::path::PathBuf;
 
 mod parquet_extract;
-mod player_profile;
 mod riot_api;
 mod sniff;
 mod stats;
@@ -116,24 +115,6 @@ enum Commands {
         level: String,
     },
 
-    /// Build player-role profiles from player-level Parquet datasets
-    BuildPlayerProfile {
-        /// Input player-level Parquet file (one row per participant)
-        #[arg(long = "player-parquet")]
-        player_parquet: String,
-
-        /// Output player profile Parquet file
-        #[arg(long = "out-parquet")]
-        out_parquet: String,
-
-        /// Number of most recent SoloQ games to include per player-role
-        #[arg(long = "history-size", default_value_t = 10)]
-        history_size: usize,
-
-        /// Minimum matches required to keep a profile
-        #[arg(long = "min-matches", default_value_t = 3)]
-        min_matches: usize,
-    },
 }
 
 fn main() {
@@ -237,27 +218,6 @@ fn main() {
                 parquet_extract::extract_parquet(&matches_path, &out_path, level.as_str())
             {
                 eprintln!("Error extracting Parquet dataset: {}", err);
-                std::process::exit(1);
-            }
-        }
-        Some(Commands::BuildPlayerProfile {
-            player_parquet,
-            out_parquet,
-            history_size,
-            min_matches,
-        }) => {
-            let in_path = PathBuf::from(player_parquet);
-            let out_path = PathBuf::from(out_parquet);
-
-            if let Err(err) =
-                player_profile::build_player_profiles(player_profile::PlayerProfileArgs {
-                    player_parquet: &in_path,
-                    out_parquet: &out_path,
-                    history_size: *history_size,
-                    min_matches: *min_matches,
-                })
-            {
-                eprintln!("Error building player profiles: {}", err);
                 std::process::exit(1);
             }
         }
