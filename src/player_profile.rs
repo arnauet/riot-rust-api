@@ -1,5 +1,4 @@
 use anyhow::Result;
-use polars::lazy::dsl::count;
 use polars::prelude::*;
 use std::fs::{self, File};
 use std::path::Path;
@@ -31,15 +30,17 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
         DataType::Float64,
     )?;
 
-    let allowed_roles = Series::new(
-        "roles_filter",
-        vec!["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"],
-    );
-
     let base = df
         .lazy()
         .filter(col("queue_id").eq(lit(420)))
-        .filter(col("role").is_in(lit(allowed_roles)))
+        .filter(
+            col("role")
+                .eq(lit("TOP"))
+                .or(col("role").eq(lit("JUNGLE")))
+                .or(col("role").eq(lit("MIDDLE")))
+                .or(col("role").eq(lit("BOTTOM")))
+                .or(col("role").eq(lit("UTILITY"))),
+        )
         .with_column(
             when(col("team_id").eq(lit(100)))
                 .then(lit(200))
@@ -74,20 +75,25 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
         ])
         .with_columns([
             col("game_creation")
-                .rank(RankOptions {
-                    method: RankMethod::Dense,
-                    descending: true,
-                    ..Default::default()
-                })
+                .rank(
+                    RankOptions {
+                        method: RankMethod::Dense,
+                        descending: true,
+                        ..Default::default()
+                    },
+                    None,
+                )
                 .over([col("puuid"), col("role")])
                 .alias("recent_rank"),
-            count()
+            col("match_id")
+                .count()
                 .over([col("puuid"), col("role")])
                 .alias("games_available"),
         ])
         .filter(col("recent_rank").le(lit(args.history_size as u32)))
         .with_column(
-            count()
+            col("match_id")
+                .count()
                 .over([col("puuid"), col("role")])
                 .alias("games_used"),
         );
