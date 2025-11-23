@@ -11,9 +11,8 @@ Rust CLI to interact with the Riot API and work with downloaded matches.
 - List match IDs for a given PUUID.
 - Download matches and save them as JSON files.
 - Extract basic statistics from downloaded matches into a CSV file.
-- Crawl from seed PUUIDs to discover and download matches with a rate-limited crawler.
+- Crawl from seed PUUIDs to discover and download matches with rate-limited kraken harvesters.
 - Extract player-level features from downloaded matches into a Parquet dataset for ML.
-- Build player-role historical profiles from player-level Parquet data.
 
 ## Usage examples
 
@@ -49,14 +48,31 @@ cargo run -- extract-parquet \
   --level player
 ```
 
-### Crawl matches starting from seed PUUIDs
+### Kraken harvesters
+
+Full crawl with flexible controls:
 ```bash
-cargo run -- sniff \
-  --seed-puuid PUUID_ONE --seed-puuid PUUID_TWO \
-  --duration-mins 30 \
-  --out-dir data/raw/sniffed \
+cargo run -- kraken-absorb \
+  --seed-puuid PUUID_ONE \
+  --seed-file seeds.txt \
+  --duration-mins 60 \
+  --out-dir data/raw/kraken \
   --max-req-per-2min 80 \
-  --max-matches-per-player 100
+  --max-matches-per-player 100 \
+  --max-matches-total 2000 \
+  --idle-exit-after-mins 15 \
+  --mode explore \
+  --role-focus "JUNGLE,TOP" \
+  --allow-ranks "EMERALD,DIAMOND" \
+  --log-interval-secs 60
+```
+
+Quick snack crawl with safe defaults:
+```bash
+cargo run -- kraken-eat \
+  --seed-puuid SOME_PUUID \
+  --out-dir data/raw/kraken_snack \
+  --duration-mins 10
 ```
 
 ### Fields parsed into the CSV

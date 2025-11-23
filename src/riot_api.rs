@@ -23,6 +23,13 @@ pub struct AccountResponse {
     puuid: String,
 }
 
+#[derive(Deserialize)]
+struct LeagueEntry {
+    #[serde(rename = "queueType")]
+    queue_type: String,
+    tier: String,
+}
+
 fn build_headers() -> Result<HeaderMap, Box<dyn Error>> {
     let api_key = env::var("RIOT_API_KEY")?;
 
@@ -82,6 +89,22 @@ impl RiotClient {
         let url = format!("{}/lol/match/v5/matches/{}", BASE_URL, match_id);
 
         self.get_json(&url)
+    }
+
+    pub fn get_ranked_tier_by_puuid(
+        &self,
+        puuid: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error>> {
+        let url = format!("{}/lol/league/v4/entries/by-puuid/{}", BASE_URL, puuid);
+
+        let entries: Vec<LeagueEntry> = self.get_json(&url)?;
+        for entry in entries {
+            if entry.queue_type == "RANKED_SOLO_5x5" {
+                return Ok(Some(entry.tier));
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn get_account_by_riot_id(

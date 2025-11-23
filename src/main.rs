@@ -2,9 +2,9 @@ use clap::{Parser, Subcommand};
 use std::env;
 use std::path::PathBuf;
 
+mod kraken;
 mod parquet_extract;
 mod riot_api;
-mod sniff;
 mod stats;
 
 // Example usage:
@@ -77,11 +77,15 @@ enum Commands {
         out_file: String,
     },
 
-    /// Crawl matches starting from seed PUUIDs, discovering new players along the way
-    Sniff {
-        /// Seed PUUIDs to start crawling from (at least one required)
+    /// Long-running kraken harvester for crawling matches
+    KrakenAbsorb {
+        /// Optional single seed PUUID to start crawling from
         #[arg(long = "seed-puuid")]
-        seed_puuid: Vec<String>,
+        seed_puuid: Option<String>,
+
+        /// Optional file containing one PUUID per line
+        #[arg(long = "seed-file")]
+        seed_file: Option<String>,
 
         /// Duration in minutes for how long the crawler should run
         #[arg(long = "duration-mins")]
@@ -98,6 +102,45 @@ enum Commands {
         /// Maximum unique matches to download per player
         #[arg(long = "max-matches-per-player", default_value_t = 100)]
         max_matches_per_player: usize,
+
+        /// Stop after writing this many matches in total (optional)
+        #[arg(long = "max-matches-total")]
+        max_matches_total: Option<usize>,
+
+        /// Exit if no matches are written for this many minutes (optional)
+        #[arg(long = "idle-exit-after-mins")]
+        idle_exit_after_mins: Option<u64>,
+
+        /// Crawl strategy: explore, focus, or seed-only
+        #[arg(long = "mode", default_value = "explore")]
+        mode: String,
+
+        /// Comma-separated list of roles to keep when writing matches
+        #[arg(long = "role-focus")]
+        role_focus: Option<String>,
+
+        /// Comma-separated list of allowed tiers for rank filtering
+        #[arg(long = "allow-ranks")]
+        allow_ranks: Option<String>,
+
+        /// Progress log interval in seconds
+        #[arg(long = "log-interval-secs", default_value_t = 60)]
+        log_interval_secs: u64,
+    },
+
+    /// Quick kraken crawl with opinionated defaults
+    KrakenEat {
+        /// Seed PUUID to start crawling from
+        #[arg(long = "seed-puuid")]
+        seed_puuid: String,
+
+        /// Output directory for downloaded matches
+        #[arg(long = "out-dir")]
+        out_dir: String,
+
+        /// Optional duration in minutes (default 10)
+        #[arg(long = "duration-mins")]
+        duration_mins: Option<u64>,
     },
 
     /// Extract player- or team-level features into Parquet for ML workflows
@@ -114,7 +157,6 @@ enum Commands {
         #[arg(long = "level")]
         level: String,
     },
-
 }
 
 fn main() {
@@ -173,18 +215,20 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Sniff {
+        Some(Commands::KrakenAbsorb {
             seed_puuid,
+            seed_file,
             duration_mins,
             out_dir,
             max_req_per_2min,
             max_matches_per_player,
+            max_matches_total,
+            idle_exit_after_mins,
+            mode,
+            role_focus,
+            allow_ranks,
+            log_interval_secs,
         }) => {
-            if seed_puuid.is_empty() {
-                eprintln!("You must provide at least one --seed-puuid for sniffing");
-                std::process::exit(1);
-            }
-
             let client = match riot_api::RiotClient::new_with_max(*max_req_per_2min) {
                 Ok(client) => client,
                 Err(err) => {
@@ -193,16 +237,47 @@ fn main() {
                 }
             };
 
-            let args = sniff::SniffArgs {
-                seed_puuids: seed_puuid.clone(),
+            let args = kraken::KrakenAbsorbArgs {
+                seed_puuid: seed_puuid.clone(),
+                seed_file: seed_file.as_ref().map(PathBuf::from),
                 duration_mins: *duration_mins,
                 out_dir: PathBuf::from(out_dir),
                 max_req_per_2min: *max_req_per_2min,
                 max_matches_per_player: *max_matches_per_player,
+                max_matches_total: *max_matches_total,
+                idle_exit_after_mins: *idle_exit_after_mins,
+                mode: mode.clone(),
+                role_focus: role_focus.clone(),
+                allow_ranks: allow_ranks.clone(),
+                log_interval_secs: *log_interval_secs,
             };
 
-            if let Err(err) = sniff::run_sniff(args, client) {
-                eprintln!("Error running sniff crawler: {}", err);
+            if let Err(err) = kraken::kraken_absorb_run(&args, &client) {
+                eprintln!("Error running kraken-absorb crawler: {}", err);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::KrakenEat {
+            seed_puuid,
+            out_dir,
+            duration_mins,
+        }) => {
+            let client = match riot_api::RiotClient::new_with_max(60) {
+                Ok(client) => client,
+                Err(err) => {
+                    eprintln!("Failed to create Riot API client: {}", err);
+                    std::process::exit(1);
+                }
+            };
+
+            let args = kraken::KrakenEatArgs {
+                seed_puuid: seed_puuid.clone(),
+                out_dir: PathBuf::from(out_dir),
+                duration_mins: *duration_mins,
+            };
+
+            if let Err(err) = kraken::kraken_eat_run(&args, &client) {
+                eprintln!("Error running kraken-eat crawler: {}", err);
                 std::process::exit(1);
             }
         }
