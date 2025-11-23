@@ -59,7 +59,7 @@ pub fn kraken_build_player_profile(
     // Assuming we need to calculate CS per minute and duration in minutes
     let duration_minutes = col("game_duration").cast(DataType::Float64) / lit(60.0);
 
-    let with_features = lf
+    let with_features: LazyFrame = lf
         .filter(col("queue_id").eq(lit(420i32)))
         .with_columns([
             duration_minutes.clone().alias("game_duration_minutes"),
@@ -77,10 +77,9 @@ pub fn kraken_build_player_profile(
                 .over([col("puuid"), col("role")])
                 .alias("recent_rank"),
         ])
-        // FIX 1: Pass the expression directly.
         .filter(col("recent_rank").le(lit(history_size as u32)));
 
-    let aggregated = with_features
+    let aggregated: LazyFrame = with_features
         .group_by([col("puuid"), col("role")])
         .agg([
             len().alias("games_used"),
@@ -121,7 +120,6 @@ pub fn kraken_build_player_profile(
                 .mean()
                 .alias("recent_avg_game_duration"),
         ])
-        // FIX 2: Pass the expression directly.
         .filter(col("games_used").ge(lit(min_matches as u32)));
 
     let mut df = aggregated.collect()?;
