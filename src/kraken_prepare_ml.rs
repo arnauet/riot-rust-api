@@ -179,7 +179,9 @@ pub fn kraken_build_ml_lobby_outcome(
     out_dir: &Path,
 ) -> Result<()> {
     let players = LazyFrame::scan_parquet(player_parquet, Default::default())?
-        .filter(col("queue_id").eq(lit(420i32)));
+        .filter(col("queue_id").eq(lit(420i32)))
+        // CORRECCIÓN: Cast team_id a i32 para consistencia
+        .with_column(col("team_id").cast(DataType::Int32));
 
     let roles = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
 
@@ -238,7 +240,8 @@ pub fn kraken_build_ml_lobby_outcome(
         .select([
             col("match_id"),
             col("queue_id"),
-            col("team_id"),
+            // CORRECCIÓN: Cast team_id a i32 para que coincida con el otro DataFrame
+            col("team_id").cast(DataType::Int32).alias("team_id"),
             col("team_side"),
             col("team_win"),
         ]);
@@ -339,3 +342,5 @@ pub fn kraken_build_ml_lobby_outcome(
     ParquetWriter::new(&mut file).finish(&mut df)?;
     Ok(())
 }
+
+
