@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+
 use anyhow::{Result, anyhow};
 use polars::prelude::*;
 
@@ -55,6 +56,7 @@ pub fn kraken_build_player_profile(
 ) -> Result<()> {
     let lf = LazyFrame::scan_parquet(player_parquet, Default::default())?;
 
+    // Assuming we need to calculate CS per minute and duration in minutes
     let duration_minutes = col("game_duration").cast(DataType::Float64) / lit(60.0);
 
     let with_features = lf
@@ -75,6 +77,7 @@ pub fn kraken_build_player_profile(
                 .over([col("puuid"), col("role")])
                 .alias("recent_rank"),
         ])
+        // FIX 1: Pass the expression directly.
         .filter(col("recent_rank").le(lit(history_size as u32)));
 
     let aggregated = with_features
@@ -118,6 +121,7 @@ pub fn kraken_build_player_profile(
                 .mean()
                 .alias("recent_avg_game_duration"),
         ])
+        // FIX 2: Pass the expression directly.
         .filter(col("games_used").ge(lit(min_matches as u32)));
 
     let mut df = aggregated.collect()?;
@@ -214,7 +218,6 @@ pub fn kraken_build_ml_lobby_outcome(
         let enemy_champ = format!("enemy_{}_champion_id", lower);
         let enemy_puuid = format!("enemy_{}_puuid", lower);
         
-        // FIX 1: Borrow the String variables here
         enemy_select.push(col(&ally_champ).alias(&enemy_champ));
         enemy_select.push(col(&ally_puuid).alias(&enemy_puuid));
     }
@@ -228,7 +231,6 @@ pub fn kraken_build_ml_lobby_outcome(
             [col("match_id"), col("enemy_team_id")],
             JoinArgs::new(JoinType::Left),
         )
-        // FIX 2: drop takes strings, not Expr
         .drop(["enemy_team_id"]);
 
     let teams = LazyFrame::scan_parquet(team_parquet, Default::default())?
@@ -293,7 +295,6 @@ pub fn kraken_build_ml_lobby_outcome(
                         &ally_cols[4],
                     ],
                 )
-                // FIX 3: drop takes strings, not Expr
                 .drop(["puuid"]);
 
             let enemy_puuid_col = format!("enemy_{}_puuid", lower);
@@ -328,7 +329,6 @@ pub fn kraken_build_ml_lobby_outcome(
                         &enemy_cols[4],
                     ],
                 )
-                // FIX 4: drop takes strings, not Expr
                 .drop(["puuid"]);
         }
     }
