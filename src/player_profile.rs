@@ -1,4 +1,5 @@
 use anyhow::Result;
+use polars::lazy::dsl::count;
 use polars::prelude::*;
 use std::fs::{self, File};
 use std::path::Path;
@@ -30,7 +31,10 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
         DataType::Float64,
     )?;
 
-    let allowed_roles = vec!["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
+    let allowed_roles = Series::new(
+        "roles_filter",
+        vec!["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"],
+    );
 
     let base = df
         .lazy()
@@ -89,7 +93,7 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
         );
 
     let aggregated = with_opponent
-        .groupby([col("puuid"), col("role")])
+        .group_by([col("puuid"), col("role")])
         .agg([
             col("games_available")
                 .max()
@@ -168,7 +172,7 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
 }
 
 fn ensure_column(df: &mut DataFrame, name: &str, dtype: DataType) -> Result<()> {
-    if !df.get_column_names().iter().any(|c| c == name) {
+    if !df.get_column_names().iter().any(|c| *c == name) {
         let series = Series::full_null(name, df.height(), &dtype);
         df.with_column(series)?;
     }
