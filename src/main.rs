@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::env;
 use std::path::PathBuf;
 
+mod parquet_extract;
 mod riot_api;
 mod sniff;
 mod stats;
@@ -98,6 +99,21 @@ enum Commands {
         #[arg(long = "max-matches-per-player", default_value_t = 100)]
         max_matches_per_player: usize,
     },
+
+    /// Extract player- or team-level features into Parquet for ML workflows
+    ExtractParquet {
+        /// Directory containing downloaded match JSON files
+        #[arg(long = "matches-dir")]
+        matches_dir: String,
+
+        /// Output Parquet file path
+        #[arg(long = "out-parquet")]
+        out_parquet: String,
+
+        /// Aggregation level (currently only 'player' is supported)
+        #[arg(long = "level")]
+        level: String,
+    },
 }
 
 fn main() {
@@ -186,6 +202,21 @@ fn main() {
 
             if let Err(err) = sniff::run_sniff(args, client) {
                 eprintln!("Error running sniff crawler: {}", err);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::ExtractParquet {
+            matches_dir,
+            out_parquet,
+            level,
+        }) => {
+            let matches_path = PathBuf::from(matches_dir);
+            let out_path = PathBuf::from(out_parquet);
+
+            if let Err(err) =
+                parquet_extract::extract_parquet(&matches_path, &out_path, level.as_str())
+            {
+                eprintln!("Error extracting Parquet dataset: {}", err);
                 std::process::exit(1);
             }
         }

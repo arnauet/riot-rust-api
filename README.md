@@ -12,6 +12,7 @@ Rust CLI to interact with the Riot API and work with downloaded matches.
 - Download matches and save them as JSON files.
 - Extract basic statistics from downloaded matches into a CSV file.
 - Crawl from seed PUUIDs to discover and download matches with a rate-limited crawler.
+- Extract player-level features from downloaded matches into a Parquet dataset for ML.
 
 ## Usage examples
 
@@ -39,6 +40,14 @@ RIOT_PUUID="..." cargo run -- extract-stats \
   --out-file data/processed/deadlybubble_basic.csv
 ```
 
+### Build a Parquet dataset for ML features
+```bash
+cargo run -- extract-parquet \
+  --matches-dir data/raw/kraken_test \
+  --out-parquet data/processed/player_match.parquet \
+  --level player
+```
+
 ### Crawl matches starting from seed PUUIDs
 ```bash
 cargo run -- sniff \
@@ -60,3 +69,12 @@ cargo run -- sniff \
 - `cs_total` (total + neutral minions)
 - `gold_earned`
 - `game_duration` (seconds)
+
+### Columns written to Parquet (--level player)
+- `match_id`, `game_creation`, `game_duration`, `queue_id`, `game_version`
+- `team_id`, `puuid`, `champion_id`, `champion_name`, `role`, `win`
+- `kills`, `deaths`, `assists`, `champ_level`, `gold_earned`, `gold_spent`
+- `total_minions_killed`, `neutral_minions_killed`, `total_cs`
+- `damage_to_champions`, `damage_to_objectives`, `damage_to_turrets`
+- `turret_takedowns`, `inhibitor_takedowns`, `vision_score`, `wards_placed`, `wards_killed`, `control_wards_placed`
+- Challenge-derived metrics (nullable): `damage_per_min`, `gold_per_min`, `team_damage_percentage`, `kill_participation`, `kda`, `vision_score_per_min`, `lane_minions_first10`, `jungle_cs_before10`
