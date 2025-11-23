@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-
 use anyhow::{Result, anyhow};
 use polars::prelude::*;
 
@@ -214,8 +213,10 @@ pub fn kraken_build_ml_lobby_outcome(
         let ally_puuid = format!("ally_{}_puuid", lower);
         let enemy_champ = format!("enemy_{}_champion_id", lower);
         let enemy_puuid = format!("enemy_{}_puuid", lower);
-        enemy_select.push(col(ally_champ).alias(&enemy_champ));
-        enemy_select.push(col(ally_puuid).alias(&enemy_puuid));
+        
+        // FIX 1: Borrow the String variables here
+        enemy_select.push(col(&ally_champ).alias(&enemy_champ));
+        enemy_select.push(col(&ally_puuid).alias(&enemy_puuid));
     }
 
     let enemy = grouped.clone().select(enemy_select);
@@ -227,7 +228,8 @@ pub fn kraken_build_ml_lobby_outcome(
             [col("match_id"), col("enemy_team_id")],
             JoinArgs::new(JoinType::Left),
         )
-        .drop([col("enemy_team_id")]);
+        // FIX 2: drop takes strings, not Expr
+        .drop(["enemy_team_id"]);
 
     let teams = LazyFrame::scan_parquet(team_parquet, Default::default())?
         .filter(col("queue_id").eq(lit(420i32)))
@@ -291,7 +293,8 @@ pub fn kraken_build_ml_lobby_outcome(
                         &ally_cols[4],
                     ],
                 )
-                .drop([col("puuid")]);
+                // FIX 3: drop takes strings, not Expr
+                .drop(["puuid"]);
 
             let enemy_puuid_col = format!("enemy_{}_puuid", lower);
             let enemy_cols: [String; 5] = [
@@ -325,7 +328,8 @@ pub fn kraken_build_ml_lobby_outcome(
                         &enemy_cols[4],
                     ],
                 )
-                .drop([col("puuid")]);
+                // FIX 4: drop takes strings, not Expr
+                .drop(["puuid"]);
         }
     }
 
