@@ -13,6 +13,7 @@ Rust CLI to interact with the Riot API and work with downloaded matches.
 - Extract basic statistics from downloaded matches into a CSV file.
 - Crawl from seed PUUIDs to discover and download matches with a rate-limited crawler.
 - Extract player-level features from downloaded matches into a Parquet dataset for ML.
+- Build player-role historical profiles from player-level Parquet data.
 
 ## Usage examples
 
@@ -58,6 +59,15 @@ cargo run -- sniff \
   --max-matches-per-player 100
 ```
 
+### Build player profiles from player_match Parquet
+```bash
+cargo run -- build-player-profile \
+  --player-parquet data/processed/player_match.parquet \
+  --out-parquet data/processed/player_profile.parquet \
+  --history-size 10 \
+  --min-matches 3
+```
+
 ### Fields parsed into the CSV
 - `match_id`
 - `game_creation` (timestamp)
@@ -78,3 +88,12 @@ cargo run -- sniff \
 - `damage_to_champions`, `damage_to_objectives`, `damage_to_turrets`
 - `turret_takedowns`, `inhibitor_takedowns`, `vision_score`, `wards_placed`, `wards_killed`, `control_wards_placed`
 - Challenge-derived metrics (nullable): `damage_per_min`, `gold_per_min`, `team_damage_percentage`, `kill_participation`, `kda`, `vision_score_per_min`, `lane_minions_first10`, `jungle_cs_before10`
+
+### Columns written to player profiles Parquet
+- Keys and counts: `puuid`, `role`, `main_champion_name`, `games_available`, `games_used`
+- Win/KDA: `win_rate`, `avg_kills`, `avg_deaths`, `avg_assists`, `avg_kda`
+- Economy/Damage: `avg_gold_earned`, `avg_gold_per_min`, `avg_damage_to_champions`, `avg_damage_per_min`
+- Farming/Vision: `avg_total_cs`, `avg_cs10`, `avg_vision_score`, `avg_vision_score_per_min`
+- Objectives: `avg_turret_takedowns`, `avg_inhibitor_takedowns`
+- Lane differentials: `avg_gold_diff_vs_lane`, `avg_cs_diff_vs_lane`, `avg_vision_diff_vs_lane`
+- Advantage metrics (nullable when absent in input): `avg_early_gold_xp_adv`, `avg_laning_gold_xp_adv`, `avg_max_cs_adv_lane`, `avg_vision_score_adv_lane`
