@@ -77,7 +77,8 @@ pub fn kraken_build_player_profile(
             .alias("recent_rank"),
     ]);
 
-    let with_features = with_features.filter(col("recent_rank").le(lit(history_size as u32)));
+    // CORRECCIÓN: Cambiar .le() por .lt_eq()
+    let with_features = with_features.filter(col("recent_rank").lt_eq(lit(history_size as u32)));
 
     let aggregated = with_features
         .group_by([col("puuid"), col("role")])
@@ -120,7 +121,8 @@ pub fn kraken_build_player_profile(
                 .mean()
                 .alias("recent_avg_game_duration"),
         ])
-        .filter(col("games_used").ge(lit(min_matches as u32)));
+        // CORRECCIÓN: Cambiar .ge() por .gt_eq()
+        .filter(col("games_used").gt_eq(lit(min_matches as u32)));
 
     let mut df = aggregated.collect()?;
     let out_path = out_dir.join("player_profile.parquet");
