@@ -1,1 +1,99 @@
 # riot-rust-api
+
+Rust CLI to interact with the Riot API and work with downloaded matches.
+
+## Quick requirements
+- Environment variable `RIOT_API_KEY` with your Riot API key.
+- Player PUUID provided via `--puuid` or the `RIOT_PUUID` environment variable.
+
+## Core features
+- Resolve a PUUID from a Riot game name and tag line.
+- List match IDs for a given PUUID.
+- Download matches and save them as JSON files.
+- Extract basic statistics from downloaded matches into a CSV file.
+- Crawl from seed PUUIDs to discover and download matches with a rate-limited crawler.
+- Extract player-level features from downloaded matches into a Parquet dataset for ML.
+- Build player-role historical profiles from player-level Parquet data.
+
+## Usage examples
+
+### Get a PUUID from game name and tag
+```bash
+cargo run -- --game-name "DeadlyBubble" --tag-line "EUW"
+```
+
+### List match IDs
+```bash
+RIOT_PUUID="..." cargo run -- matches --count 10
+```
+
+### Download matches to disk
+```bash
+RIOT_PUUID="..." cargo run -- download-matches \
+  --count 20 \
+  --out-dir data/raw/matches
+```
+
+### Extract basic stats to CSV
+```bash
+RIOT_PUUID="..." cargo run -- extract-stats \
+  --matches-dir data/raw/matches \
+  --out-file data/processed/deadlybubble_basic.csv
+```
+
+### Build a Parquet dataset for ML features
+```bash
+cargo run -- extract-parquet \
+  --matches-dir data/raw/kraken_test \
+  --out-parquet data/processed/player_match.parquet \
+  --level player
+```
+
+### Crawl matches starting from seed PUUIDs
+```bash
+cargo run -- sniff \
+  --seed-puuid PUUID_ONE --seed-puuid PUUID_TWO \
+  --duration-mins 30 \
+  --out-dir data/raw/sniffed \
+  --max-req-per-2min 80 \
+  --max-matches-per-player 100
+```
+
+### Build player profiles from player_match Parquet
+```bash
+cargo run -- build-player-profile \
+  --player-parquet data/processed/player_match.parquet \
+  --out-parquet data/processed/player_profile.parquet \
+  --history-size 10 \
+  --min-matches 3
+```
+
+### Fields parsed into the CSV
+- `match_id`
+- `game_creation` (timestamp)
+- `queue_id`
+- `champion_name`
+- `role`
+- `win` (1/0)
+- `kills`, `deaths`, `assists`
+- `cs_total` (total + neutral minions)
+- `gold_earned`
+- `game_duration` (seconds)
+
+### Columns written to Parquet (--level player)
+- `match_id`, `game_creation`, `game_duration`, `queue_id`, `game_version`
+- `team_id`, `puuid`, `champion_id`, `champion_name`, `role`, `win`
+- `kills`, `deaths`, `assists`, `champ_level`, `gold_earned`, `gold_spent`
+- `total_minions_killed`, `neutral_minions_killed`, `total_cs`
+- `damage_to_champions`, `damage_to_objectives`, `damage_to_turrets`
+- `turret_takedowns`, `inhibitor_takedowns`, `vision_score`, `wards_placed`, `wards_killed`, `control_wards_placed`
+- Challenge-derived metrics (nullable): `damage_per_min`, `gold_per_min`, `team_damage_percentage`, `kill_participation`, `kda`, `vision_score_per_min`, `lane_minions_first10`, `jungle_cs_before10`
+
+### Columns written to player profiles Parquet
+- Keys and counts: `puuid`, `role`, `main_champion_name`, `games_available`, `games_used`
+- Win/KDA: `win_rate`, `avg_kills`, `avg_deaths`, `avg_assists`, `avg_kda`
+- Economy/Damage: `avg_gold_earned`, `avg_gold_per_min`, `avg_damage_to_champions`, `avg_damage_per_min`
+- Farming/Vision: `avg_total_cs`, `avg_cs10`, `avg_vision_score`, `avg_vision_score_per_min`
+- Objectives: `avg_turret_takedowns`, `avg_inhibitor_takedowns`
+- Lane differentials: `avg_gold_diff_vs_lane`, `avg_cs_diff_vs_lane`, `avg_vision_diff_vs_lane`
+- Advantage metrics (nullable when absent in input): `avg_early_gold_xp_adv`, `avg_laning_gold_xp_adv`, `avg_max_cs_adv_lane`, `avg_vision_score_adv_lane`
