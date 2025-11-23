@@ -1,10 +1,14 @@
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use polars::prelude::*;
+use polars::prelude::*; // This usually includes `len` in recent versions
+// Remove: use polars::lazy::dsl::*;
+use polars::lazy::dsl::len;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+
 
 fn format_ts_millis(ts: i64) -> String {
     DateTime::<Utc>::from_timestamp_millis(ts)
@@ -150,7 +154,7 @@ pub fn kraken_summary_player(
     let basic = lf
         .clone()
         .select([
-            count().alias("rows"),
+            len().alias("rows"),
             col("match_id").n_unique().alias("matches"),
             col("puuid").n_unique().alias("players"),
         ])
@@ -166,7 +170,7 @@ pub fn kraken_summary_player(
     let queue_dist = lf
         .clone()
         .group_by([col("queue_id")])
-        .agg([count().alias("games")])
+        .agg([len().alias("games")])
         .sort(
             "games",
             SortOptions {
@@ -190,7 +194,7 @@ pub fn kraken_summary_player(
     let role_dist = lf
         .clone()
         .group_by([col("role")])
-        .agg([count().alias("games")])
+        .agg([len().alias("games")])
         .sort(
             "games",
             SortOptions {
@@ -235,7 +239,7 @@ pub fn kraken_summary_player(
             .clone()
             .group_by([col("champion_name")])
             .agg([
-                count().alias("games"),
+                len().alias("games"),
                 col("win").cast(DataType::Float64).mean().alias("win_rate"),
             ])
             .sort(
@@ -268,7 +272,7 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
     let basic = lf
         .clone()
         .select([
-            count().alias("rows"),
+            len().alias("rows"),
             col("match_id").n_unique().alias("matches"),
         ])
         .collect()?;

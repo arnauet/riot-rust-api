@@ -1,0 +1,16 @@
+== Kraken Summary (raw JSON) ==
+Matches scanned: 80
+Queue distribution: SoloQ=70 Other=10 (3 queues tracked)
+Time range: 2024-04-09T15:54:30.455+00:00 -> 2025-11-23T17:57:11.541+00:00
+Participants counted: 800
+Top champions:
+  MissFortune          38
+  Viego                26
+  Aurora               20
+  Caitlyn              16
+  Diana                14
+  Kaisa                14
+  Zaahen               13
+  Morgana              12
+  Jhin                 11
+  Bard                 11
