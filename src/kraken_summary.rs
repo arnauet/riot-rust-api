@@ -264,9 +264,6 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
 
     // Get schema to verify columns
     let schema = lf.schema()?;
-    
-    // Debug: Print available columns if needed (commented out for cleaner output)
-    // println!("Columns in Team Parquet: {:?}", schema.iter_names());
 
     if let Some(limit) = max_rows {
         lf = lf.limit(limit.try_into().unwrap_or(u32::MAX));
@@ -281,20 +278,20 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
         .collect()?;
     println!("Rows / matches:\n{}", basic);
 
-    // FIX: Check for 'team_win' instead of 'win'
+    // Check for 'team_win' instead of 'win'
     if schema.get("team_win").is_some() {
         let side_win = lf
             .clone()
             .filter(col("queue_id").eq(lit(420)))
             .group_by([col("team_id")])
-            // FIX: Use 'team_win' here
             .agg([col("team_win").cast(DataType::Float64).mean().alias("win_rate")])
             .sort("team_id", SortOptions::default())
             .collect()?;
         println!("SoloQ team winrate:\n{}", side_win);
     } else {
         println!("⚠️  WARNING: Column 'team_win' not found. Skipping winrate stats.");
-        println!("   (Available columns: {:?})", schema.iter_names());
+        // FIX: Collect the iterator into a Vec<_> to print it
+        println!("   (Available columns: {:?})", schema.iter_names().collect::<Vec<_>>());
     }
 
     Ok(())
