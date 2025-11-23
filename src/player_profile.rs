@@ -72,7 +72,7 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
             col("laningPhaseGoldExpAdvantage").alias("laning_gold_xp_adv"),
             col("maxCsAdvantageOnLaneOpponent").alias("max_cs_adv_lane"),
             col("visionScoreAdvantageLaneOpponent").alias("vision_score_adv_lane"),
-        ])
+        ])?
         .with_columns([
             col("game_creation")
                 .rank(
@@ -89,16 +89,18 @@ pub fn build_player_profiles(args: PlayerProfileArgs) -> Result<()> {
                 .count()
                 .over([col("puuid"), col("role")])
                 .alias("games_available"),
-        ])
+        ])?;
+
+    let recent_subset = with_opponent
         .filter(col("recent_rank").le(lit(args.history_size as u32)))
         .with_column(
             col("match_id")
                 .count()
                 .over([col("puuid"), col("role")])
                 .alias("games_used"),
-        );
+        )?;
 
-    let aggregated = with_opponent
+    let aggregated = recent_subset
         .group_by([col("puuid"), col("role")])
         .agg([
             col("games_available")
