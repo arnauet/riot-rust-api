@@ -1,3 +1,4 @@
+use polars::prelude::ParquetWriter;
 use polars::prelude::*;
 use serde_json::Value;
 use std::error::Error;
@@ -228,9 +229,9 @@ pub fn extract_parquet(
         }
     }
 
-    let df = build_dataframe(rows)?;
+    let mut df = build_dataframe(rows)?;
     let mut file = File::create(out_parquet)?;
-    df.write_parquet(&mut file, ParquetWriteOptions::default())?;
+    ParquetWriter::new(&mut file).finish(&mut df)?;
 
     Ok(())
 }
