@@ -50,20 +50,23 @@ pub fn extract_parquet(
     out_parquet: &Path,
     level: &str,
 ) -> Result<(), Box<dyn Error>> {
-    if level != "player" {
-        return Err(format!(
-            "Unsupported level '{}'. Only 'player' is implemented.",
-            level
-        )
-        .into());
-    }
-
     if let Some(parent) = out_parquet.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
         }
     }
+    match level {
+        "player" => extract_player_parquet(matches_dir, out_parquet),
+        "team" => extract_team_parquet(matches_dir, out_parquet),
+        other => Err(format!(
+            "Unsupported level '{}'. Supported levels: player, team.",
+            other
+        )
+        .into()),
+    }
+}
 
+fn extract_player_parquet(matches_dir: &Path, out_parquet: &Path) -> Result<(), Box<dyn Error>> {
     let mut rows: Vec<PlayerRow> = Vec::new();
 
     for path in collect_json_files(matches_dir) {
@@ -236,6 +239,237 @@ pub fn extract_parquet(
     Ok(())
 }
 
+#[derive(Default)]
+struct TeamRow {
+    match_id: String,
+    platform_id: Option<String>,
+    queue_id: i32,
+    game_version: String,
+    game_creation: i64,
+    game_duration: i32,
+    team_id: i16,
+    team_side: String,
+    team_win: i8,
+    top_champion_id: Option<i32>,
+    jungle_champion_id: Option<i32>,
+    middle_champion_id: Option<i32>,
+    bottom_champion_id: Option<i32>,
+    utility_champion_id: Option<i32>,
+    team_kills: i32,
+    team_deaths: i32,
+    team_assists: i32,
+    team_gold_earned: i64,
+    team_damage_to_champions: i64,
+    team_vision_score: i64,
+    team_cs_total: i32,
+    team_gold_per_min: Option<f64>,
+    team_damage_per_min: Option<f64>,
+    team_vision_score_per_min: Option<f64>,
+    team_cs_per_min: Option<f64>,
+    team_towers_destroyed: i32,
+    team_inhibitors_destroyed: i32,
+    team_dragons: i32,
+    team_barons: i32,
+    team_heralds: i32,
+    team_plates: Option<i32>,
+    first_blood: Option<bool>,
+    first_tower: Option<bool>,
+    first_inhibitor: Option<bool>,
+    first_baron: Option<bool>,
+    first_dragon: Option<bool>,
+    first_herald: Option<bool>,
+}
+
+fn extract_team_parquet(matches_dir: &Path, out_parquet: &Path) -> Result<(), Box<dyn Error>> {
+    let mut rows: Vec<TeamRow> = Vec::new();
+
+    for path in collect_json_files(matches_dir) {
+        let contents = match fs::read_to_string(&path) {
+            Ok(data) => data,
+            Err(err) => {
+                eprintln!("Skipping unreadable file {}: {}", path.display(), err);
+                continue;
+            }
+        };
+
+        let parsed: Value = match serde_json::from_str(&contents) {
+            Ok(value) => value,
+            Err(err) => {
+                eprintln!("Skipping invalid JSON {}: {}", path.display(), err);
+                continue;
+            }
+        };
+
+        let Some(metadata) = parsed.get("metadata") else {
+            eprintln!("Missing metadata in {}", path.display());
+            continue;
+        };
+
+        let Some(info) = parsed.get("info") else {
+            eprintln!("Missing info section in {}", path.display());
+            continue;
+        };
+
+        let Some(participants) = info.get("participants").and_then(|p| p.as_array()) else {
+            eprintln!("Missing participants array in {}", path.display());
+            continue;
+        };
+
+        let Some(teams) = info.get("teams").and_then(|t| t.as_array()) else {
+            eprintln!("Missing teams array in {}", path.display());
+            continue;
+        };
+
+        let Some(match_id) = metadata
+            .get("matchId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            })
+        else {
+            continue;
+        };
+
+        let platform_id = metadata
+            .get("platformId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                info.get("platformId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+
+        let game_creation = info
+            .get("gameCreation")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default();
+        let game_duration = info
+            .get("gameDuration")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default() as i32;
+        let queue_id = info
+            .get("queueId")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default() as i32;
+        let game_version = info
+            .get("gameVersion")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        for team in teams {
+            let Some(team_id) = team.get("teamId").and_then(|v| v.as_i64()) else {
+                continue;
+            };
+
+            let team_participants: Vec<&Value> = participants
+                .iter()
+                .filter(|p| p.get("teamId").and_then(|v| v.as_i64()) == Some(team_id))
+                .collect();
+
+            let team_kills: i32 = team_participants
+                .iter()
+                .map(|p| as_i32(p.get("kills")))
+                .sum();
+            let team_deaths: i32 = team_participants
+                .iter()
+                .map(|p| as_i32(p.get("deaths")))
+                .sum();
+            let team_assists: i32 = team_participants
+                .iter()
+                .map(|p| as_i32(p.get("assists")))
+                .sum();
+            let team_gold_earned: i64 = team_participants
+                .iter()
+                .map(|p| as_i32(p.get("goldEarned")) as i64)
+                .sum();
+            let team_damage_to_champions: i64 = team_participants
+                .iter()
+                .map(|p| as_i32(p.get("totalDamageDealtToChampions")) as i64)
+                .sum();
+            let team_vision_score: i64 = team_participants
+                .iter()
+                .map(|p| as_i32(p.get("visionScore")) as i64)
+                .sum();
+            let team_cs_total: i32 = team_participants
+                .iter()
+                .map(|p| {
+                    as_i32(p.get("totalMinionsKilled")) + as_i32(p.get("neutralMinionsKilled"))
+                })
+                .sum();
+
+            let team_win = team.get("win").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            let (
+                team_towers_destroyed,
+                team_inhibitors_destroyed,
+                team_dragons,
+                team_barons,
+                team_heralds,
+                team_plates,
+                first_blood,
+                first_tower,
+                first_inhibitor,
+                first_baron,
+                first_dragon,
+                first_herald,
+            ) = team_objectives(team);
+
+            let row = TeamRow {
+                match_id: match_id.clone(),
+                platform_id: platform_id.clone(),
+                queue_id,
+                game_version: game_version.clone(),
+                game_creation,
+                game_duration,
+                team_id: team_id as i16,
+                team_side: if team_id == 100 { "blue" } else { "red" }.to_string(),
+                team_win: if team_win { 1 } else { 0 },
+                top_champion_id: find_role_champion(&team_participants, "TOP"),
+                jungle_champion_id: find_role_champion(&team_participants, "JUNGLE"),
+                middle_champion_id: find_role_champion(&team_participants, "MIDDLE"),
+                bottom_champion_id: find_role_champion(&team_participants, "BOTTOM"),
+                utility_champion_id: find_role_champion(&team_participants, "UTILITY"),
+                team_kills,
+                team_deaths,
+                team_assists,
+                team_gold_earned,
+                team_damage_to_champions,
+                team_vision_score,
+                team_cs_total,
+                team_gold_per_min: per_min(team_gold_earned, game_duration),
+                team_damage_per_min: per_min(team_damage_to_champions, game_duration),
+                team_vision_score_per_min: per_min(team_vision_score, game_duration),
+                team_cs_per_min: per_min(team_cs_total as i64, game_duration),
+                team_towers_destroyed,
+                team_inhibitors_destroyed,
+                team_dragons,
+                team_barons,
+                team_heralds,
+                team_plates,
+                first_blood,
+                first_tower,
+                first_inhibitor,
+                first_baron,
+                first_dragon,
+                first_herald,
+            };
+
+            rows.push(row);
+        }
+    }
+
+    let mut df = build_team_dataframe(rows)?;
+    let mut file = File::create(out_parquet)?;
+    ParquetWriter::new(&mut file).finish(&mut df)?;
+
+    Ok(())
+}
+
 fn collect_json_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -383,6 +617,126 @@ fn build_dataframe(rows: Vec<PlayerRow>) -> Result<DataFrame, PolarsError> {
     ])
 }
 
+fn build_team_dataframe(rows: Vec<TeamRow>) -> Result<DataFrame, PolarsError> {
+    let mut match_id: Vec<String> = Vec::new();
+    let mut platform_id: Vec<Option<String>> = Vec::new();
+    let mut queue_id: Vec<i32> = Vec::new();
+    let mut game_version: Vec<String> = Vec::new();
+    let mut game_creation: Vec<i64> = Vec::new();
+    let mut game_duration: Vec<i32> = Vec::new();
+    let mut team_id: Vec<i16> = Vec::new();
+    let mut team_side: Vec<String> = Vec::new();
+    let mut team_win: Vec<i8> = Vec::new();
+    let mut top_champion_id: Vec<Option<i32>> = Vec::new();
+    let mut jungle_champion_id: Vec<Option<i32>> = Vec::new();
+    let mut middle_champion_id: Vec<Option<i32>> = Vec::new();
+    let mut bottom_champion_id: Vec<Option<i32>> = Vec::new();
+    let mut utility_champion_id: Vec<Option<i32>> = Vec::new();
+    let mut team_kills: Vec<i32> = Vec::new();
+    let mut team_deaths: Vec<i32> = Vec::new();
+    let mut team_assists: Vec<i32> = Vec::new();
+    let mut team_gold_earned: Vec<i64> = Vec::new();
+    let mut team_damage_to_champions: Vec<i64> = Vec::new();
+    let mut team_vision_score: Vec<i64> = Vec::new();
+    let mut team_cs_total: Vec<i32> = Vec::new();
+    let mut team_gold_per_min: Vec<Option<f64>> = Vec::new();
+    let mut team_damage_per_min: Vec<Option<f64>> = Vec::new();
+    let mut team_vision_score_per_min: Vec<Option<f64>> = Vec::new();
+    let mut team_cs_per_min: Vec<Option<f64>> = Vec::new();
+    let mut team_towers_destroyed: Vec<i32> = Vec::new();
+    let mut team_inhibitors_destroyed: Vec<i32> = Vec::new();
+    let mut team_dragons: Vec<i32> = Vec::new();
+    let mut team_barons: Vec<i32> = Vec::new();
+    let mut team_heralds: Vec<i32> = Vec::new();
+    let mut team_plates: Vec<Option<i32>> = Vec::new();
+    let mut first_blood: Vec<Option<bool>> = Vec::new();
+    let mut first_tower: Vec<Option<bool>> = Vec::new();
+    let mut first_inhibitor: Vec<Option<bool>> = Vec::new();
+    let mut first_baron: Vec<Option<bool>> = Vec::new();
+    let mut first_dragon: Vec<Option<bool>> = Vec::new();
+    let mut first_herald: Vec<Option<bool>> = Vec::new();
+
+    for row in rows {
+        match_id.push(row.match_id);
+        platform_id.push(row.platform_id);
+        queue_id.push(row.queue_id);
+        game_version.push(row.game_version);
+        game_creation.push(row.game_creation);
+        game_duration.push(row.game_duration);
+        team_id.push(row.team_id);
+        team_side.push(row.team_side);
+        team_win.push(row.team_win);
+        top_champion_id.push(row.top_champion_id);
+        jungle_champion_id.push(row.jungle_champion_id);
+        middle_champion_id.push(row.middle_champion_id);
+        bottom_champion_id.push(row.bottom_champion_id);
+        utility_champion_id.push(row.utility_champion_id);
+        team_kills.push(row.team_kills);
+        team_deaths.push(row.team_deaths);
+        team_assists.push(row.team_assists);
+        team_gold_earned.push(row.team_gold_earned);
+        team_damage_to_champions.push(row.team_damage_to_champions);
+        team_vision_score.push(row.team_vision_score);
+        team_cs_total.push(row.team_cs_total);
+        team_gold_per_min.push(row.team_gold_per_min);
+        team_damage_per_min.push(row.team_damage_per_min);
+        team_vision_score_per_min.push(row.team_vision_score_per_min);
+        team_cs_per_min.push(row.team_cs_per_min);
+        team_towers_destroyed.push(row.team_towers_destroyed);
+        team_inhibitors_destroyed.push(row.team_inhibitors_destroyed);
+        team_dragons.push(row.team_dragons);
+        team_barons.push(row.team_barons);
+        team_heralds.push(row.team_heralds);
+        team_plates.push(row.team_plates);
+        first_blood.push(row.first_blood);
+        first_tower.push(row.first_tower);
+        first_inhibitor.push(row.first_inhibitor);
+        first_baron.push(row.first_baron);
+        first_dragon.push(row.first_dragon);
+        first_herald.push(row.first_herald);
+    }
+
+    DataFrame::new(vec![
+        Series::new("match_id", match_id),
+        Series::new("platform_id", platform_id),
+        Series::new("queue_id", queue_id),
+        Series::new("game_version", game_version),
+        Series::new("game_creation", game_creation),
+        Series::new("game_duration", game_duration),
+        Series::new("team_id", team_id),
+        Series::new("team_side", team_side),
+        Series::new("team_win", team_win),
+        Series::new("top_champion_id", top_champion_id),
+        Series::new("jungle_champion_id", jungle_champion_id),
+        Series::new("middle_champion_id", middle_champion_id),
+        Series::new("bottom_champion_id", bottom_champion_id),
+        Series::new("utility_champion_id", utility_champion_id),
+        Series::new("team_kills", team_kills),
+        Series::new("team_deaths", team_deaths),
+        Series::new("team_assists", team_assists),
+        Series::new("team_gold_earned", team_gold_earned),
+        Series::new("team_damage_to_champions", team_damage_to_champions),
+        Series::new("team_vision_score", team_vision_score),
+        Series::new("team_cs_total", team_cs_total),
+        Series::new("team_gold_per_min", team_gold_per_min),
+        Series::new("team_damage_per_min", team_damage_per_min),
+        Series::new("team_vision_score_per_min", team_vision_score_per_min),
+        Series::new("team_cs_per_min", team_cs_per_min),
+        Series::new("team_towers_destroyed", team_towers_destroyed),
+        Series::new("team_inhibitors_destroyed", team_inhibitors_destroyed),
+        Series::new("team_dragons", team_dragons),
+        Series::new("team_barons", team_barons),
+        Series::new("team_heralds", team_heralds),
+        Series::new("team_plates", team_plates),
+        Series::new("first_blood", first_blood),
+        Series::new("first_tower", first_tower),
+        Series::new("first_inhibitor", first_inhibitor),
+        Series::new("first_baron", first_baron),
+        Series::new("first_dragon", first_dragon),
+        Series::new("first_herald", first_herald),
+    ])
+}
+
 fn as_i32(value: Option<&Value>) -> i32 {
     value
         .and_then(|v| v.as_i64())
@@ -393,4 +747,93 @@ fn as_i32(value: Option<&Value>) -> i32 {
 
 fn as_f64(container: Option<&Value>, key: &str) -> Option<f64> {
     container.and_then(|c| c.get(key)).and_then(|v| v.as_f64())
+}
+
+fn find_role_champion(participants: &[&Value], role: &str) -> Option<i32> {
+    participants
+        .iter()
+        .find(|p| {
+            p.get("teamPosition")
+                .and_then(|v| v.as_str())
+                .map(|s| s.eq_ignore_ascii_case(role))
+                .unwrap_or(false)
+        })
+        .and_then(|p| p.get("championId"))
+        .and_then(|v| v.as_i64())
+        .map(|id| id as i32)
+}
+
+fn team_objectives(
+    team: &Value,
+) -> (
+    i32,
+    i32,
+    i32,
+    i32,
+    i32,
+    Option<i32>,
+    Option<bool>,
+    Option<bool>,
+    Option<bool>,
+    Option<bool>,
+    Option<bool>,
+    Option<bool>,
+) {
+    let objectives = team.get("objectives");
+
+    let tower = objective_kills(objectives, "tower");
+    let inhibitor = objective_kills(objectives, "inhibitor");
+    let dragon = objective_kills(objectives, "dragon");
+    let baron = objective_kills(objectives, "baron");
+    let herald = objective_kills(objectives, "riftHerald");
+    let plates = objectives
+        .and_then(|o| o.get("tower"))
+        .and_then(|t| t.get("plates"))
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+
+    let first_blood = objective_first(objectives, "champion");
+    let first_tower = objective_first(objectives, "tower");
+    let first_inhibitor = objective_first(objectives, "inhibitor");
+    let first_baron = objective_first(objectives, "baron");
+    let first_dragon = objective_first(objectives, "dragon");
+    let first_herald = objective_first(objectives, "riftHerald");
+
+    (
+        tower,
+        inhibitor,
+        dragon,
+        baron,
+        herald,
+        plates,
+        first_blood,
+        first_tower,
+        first_inhibitor,
+        first_baron,
+        first_dragon,
+        first_herald,
+    )
+}
+
+fn objective_kills(objectives: Option<&Value>, key: &str) -> i32 {
+    objectives
+        .and_then(|o| o.get(key))
+        .and_then(|obj| obj.get("kills"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or_default() as i32
+}
+
+fn objective_first(objectives: Option<&Value>, key: &str) -> Option<bool> {
+    objectives
+        .and_then(|o| o.get(key))
+        .and_then(|obj| obj.get("first"))
+        .and_then(|v| v.as_bool())
+}
+
+fn per_min(total: i64, duration_secs: i32) -> Option<f64> {
+    if duration_secs <= 0 {
+        return None;
+    }
+
+    Some(total as f64 / (duration_secs as f64 / 60.0))
 }

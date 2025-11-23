@@ -154,7 +154,7 @@ enum Commands {
         #[arg(long = "out-parquet")]
         out_parquet: String,
 
-        /// Aggregation level (currently only 'player' is supported)
+        /// Aggregation level ('player' or 'team')
         #[arg(long = "level")]
         level: String,
     },

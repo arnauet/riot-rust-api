@@ -48,6 +48,14 @@ cargo run -- extract-parquet \
   --level player
 ```
 
+Team-level (two rows per match, one per side):
+```bash
+cargo run -- extract-parquet \
+  --matches-dir data/raw/kraken_test \
+  --out-parquet data/processed/team_match.parquet \
+  --level team
+```
+
 ### Kraken harvesters
 
 Full crawl with flexible controls:
