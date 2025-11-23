@@ -261,6 +261,11 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
         parquet_path.to_string_lossy().as_ref(),
         ScanArgsParquet::default(),
     )?;
+
+    // Debug: Print the schema so you can see what columns are actually there
+    let schema = lf.collect_schema()?;
+    println!("Columns in Team Parquet: {:?}", schema.iter_names());
+
     if let Some(limit) = max_rows {
         lf = lf.limit(limit.try_into().unwrap_or(u32::MAX));
     }
@@ -268,20 +273,26 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
     let basic = lf
         .clone()
         .select([
-            len().alias("rows"), // CORREGIDO: count() -> len()
+            len().alias("rows"),
             col("match_id").n_unique().alias("matches"),
         ])
         .collect()?;
     println!("Rows / matches:\n{}", basic);
 
-    let side_win = lf
-        .clone()
-        .filter(col("queue_id").eq(lit(420)))
-        .group_by([col("team_id")])
-        .agg([col("win").cast(DataType::Float64).mean().alias("win_rate")])
-        .sort("team_id", SortOptions::default())
-        .collect()?;
-    println!("SoloQ team winrate:\n{}", side_win);
+    // Check if 'win' column exists before trying to use it
+    if schema.get("win").is_some() {
+        let side_win = lf
+            .clone()
+            .filter(col("queue_id").eq(lit(420)))
+            .group_by([col("team_id")])
+            .agg([col("win").cast(DataType::Float64).mean().alias("win_rate")])
+            .sort("team_id", SortOptions::default())
+            .collect()?;
+        println!("SoloQ team winrate:\n{}", side_win);
+    } else {
+        println!("⚠️  WARNING: Column 'win' not found. Skipping winrate stats.");
+        println!("   (Check your ingestion struct to ensure the 'win' field is public and serializable)");
+    }
 
     Ok(())
 }
