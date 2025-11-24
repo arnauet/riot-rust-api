@@ -249,7 +249,7 @@ struct TeamRow {
     game_duration: i32,
     team_id: i16,
     team_side: String,
-    team_win: i8,
+    team_win: i32,
     top_champion_id: Option<i32>,
     jungle_champion_id: Option<i32>,
     middle_champion_id: Option<i32>,
@@ -402,6 +402,7 @@ fn extract_team_parquet(matches_dir: &Path, out_parquet: &Path) -> Result<(), Bo
                 })
                 .sum();
 
+            // Riot's raw teams[].win is a boolean; store it as a numeric flag for aggregation.
             let team_win = team.get("win").and_then(|v| v.as_bool()).unwrap_or(false);
 
             let (
@@ -626,7 +627,7 @@ fn build_team_dataframe(rows: Vec<TeamRow>) -> Result<DataFrame, PolarsError> {
     let mut game_duration: Vec<i32> = Vec::new();
     let mut team_id: Vec<i16> = Vec::new();
     let mut team_side: Vec<String> = Vec::new();
-    let mut team_win: Vec<i8> = Vec::new();
+    let mut team_win: Vec<i32> = Vec::new();
     let mut top_champion_id: Vec<Option<i32>> = Vec::new();
     let mut jungle_champion_id: Vec<Option<i32>> = Vec::new();
     let mut middle_champion_id: Vec<Option<i32>> = Vec::new();

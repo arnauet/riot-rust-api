@@ -182,7 +182,7 @@ pub fn kraken_summary_player(
         .clone()
         .filter(col("queue_id").eq(lit(420)))
         .group_by([col("team_id")])
-        .agg([col("win").cast(DataType::Float64).mean().alias("win_rate")])
+        .agg([col("team_win").cast(DataType::Float64).mean().alias("win_rate")])
         .sort("team_id", SortOptions::default())
         .collect()?;
     println!("SoloQ side winrate:\n{}", side_win);
@@ -278,7 +278,7 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
         .clone()
         .filter(col("queue_id").eq(lit(420)))
         .group_by([col("team_id")])
-        .agg([col("win").cast(DataType::Float64).mean().alias("win_rate")])
+        .agg([col("team_win").cast(DataType::Float64).mean().alias("win_rate")])
         .sort("team_id", SortOptions::default())
         .collect()?;
     println!("SoloQ team winrate:\n{}", side_win);
