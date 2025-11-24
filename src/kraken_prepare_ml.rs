@@ -54,12 +54,98 @@ pub fn kraken_build_player_profile(
     history_size: usize,
     min_matches: usize,
 ) -> Result<()> {
-    let out_path = out_dir.join("player_profile.parquet");
-    fs::copy(player_parquet, &out_path)?;
     println!(
-        "player profile copy: {:?} -> {:?} (history_size={}, min_matches={})",
-        player_parquet, out_path, history_size, min_matches
+        "Building player profiles with history_size={}, min_matches={}",
+        history_size, min_matches
     );
+
+    // Load player-level data
+    let lf = LazyFrame::scan_parquet(player_parquet, Default::default())?;
+
+    // Filter for ranked SoloQ and valid roles
+    let filtered = lf
+        .filter(col("queue_id").eq(lit(420i32)))
+        .filter(
+            col("role")
+                .eq(lit("TOP"))
+                .or(col("role").eq(lit("JUNGLE")))
+                .or(col("role").eq(lit("MIDDLE")))
+                .or(col("role").eq(lit("BOTTOM")))
+                .or(col("role").eq(lit("UTILITY"))),
+        );
+
+    // Compute cs_per_min if not present (from total_cs and game_duration)
+    let with_derived = filtered.with_columns([
+    when(col("game_duration").gt(lit(0)))
+        .then(
+            (col("total_cs").cast(DataType::Float64) * lit(60.0))
+                / col("game_duration").cast(DataType::Float64),
+        )
+        .otherwise(lit(NULL))
+        .alias("cs_per_min"),
+    ]);
+
+
+    // Add ranking within each (puuid, role) group by game_creation descending
+    let with_rank = with_derived.with_column(
+        col("game_creation")
+            .rank(
+                RankOptions {
+                    method: RankMethod::Dense,
+                    descending: true,
+                    ..Default::default()
+                },
+                None,
+            )
+            .over([col("puuid"), col("role")])
+            .alias("recency_rank"),
+    );
+
+    // Keep only the most recent history_size matches per (puuid, role)
+    let recent_only = with_rank.filter(col("recency_rank").lt_eq(lit(history_size as u32)));
+
+    // Aggregate per (puuid, role)
+    let profiles = recent_only
+        .group_by([col("puuid"), col("role")])
+        .agg([
+            // Count of games used
+            len().alias("games_used"),
+            
+            // Win rate
+            col("win").cast(DataType::Float64).mean().alias("recent_winrate"),
+            
+            // KDA stats
+            col("kills").cast(DataType::Float64).mean().alias("recent_avg_kills"),
+            col("deaths").cast(DataType::Float64).mean().alias("recent_avg_deaths"),
+            col("assists").cast(DataType::Float64).mean().alias("recent_avg_assists"),
+            
+            // Per-minute stats (use existing columns or computed)
+            col("gold_per_min").mean().alias("recent_avg_gold_per_min"),
+            col("damage_per_min").mean().alias("recent_avg_damage_per_min"),
+            col("vision_score_per_min").mean().alias("recent_avg_vision_score_per_min"),
+            
+            // CS per minute (prefer existing column, fallback to computed)
+            col("cs_per_min")
+                .mean()
+                .alias("recent_avg_cs_per_min"),
+            
+            // Game duration average (in seconds)
+            col("game_duration").cast(DataType::Float64).mean().alias("recent_avg_game_duration"),
+        ])
+        .filter(col("games_used").gt_eq(lit(min_matches as u32)));
+
+    // Collect and write to parquet
+    let mut df = profiles.collect()?;
+    let out_path = out_dir.join("player_profile.parquet");
+    let mut file = std::fs::File::create(&out_path)?;
+    ParquetWriter::new(&mut file).finish(&mut df)?;
+
+    println!(
+        "✓ Built {} player profiles → {:?}",
+        df.height(),
+        out_path
+    );
+
     Ok(())
 }
 
@@ -112,7 +198,6 @@ pub fn kraken_build_ml_lobby_outcome(
 ) -> Result<()> {
     let players = LazyFrame::scan_parquet(player_parquet, Default::default())?
         .filter(col("queue_id").eq(lit(420i32)))
-        // CORRECCIÓN: Cast team_id a i32 para consistencia
         .with_column(col("team_id").cast(DataType::Int32));
 
     let roles = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
@@ -172,7 +257,6 @@ pub fn kraken_build_ml_lobby_outcome(
         .select([
             col("match_id"),
             col("queue_id"),
-            // CORRECCIÓN: Cast team_id a i32 para que coincida con el otro DataFrame
             col("team_id").cast(DataType::Int32).alias("team_id"),
             col("team_side"),
             col("team_win"),
@@ -274,5 +358,3 @@ pub fn kraken_build_ml_lobby_outcome(
     ParquetWriter::new(&mut file).finish(&mut df)?;
     Ok(())
 }
-
-

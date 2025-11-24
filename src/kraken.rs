@@ -111,8 +111,10 @@ pub fn kraken_absorb_run(
     let mut queue: VecDeque<String> = VecDeque::new();
     let mut seen_puuids: HashSet<String> = HashSet::new();
     let mut rank_cache: HashMap<String, Option<String>> = HashMap::new();
+    let mut matches_per_player: HashMap<String, usize> = HashMap::new();
 
     for seed in seeds {
+        let current_count = *matches_per_player.get(&seed).unwrap_or(&0);
         if kraken_maybe_enqueue_player(
             &seed,
             &mut seen_puuids,
@@ -122,6 +124,7 @@ pub fn kraken_absorb_run(
             client,
             &mode,
             None,
+            current_count,
         )? {
             continue;
         }
@@ -132,7 +135,6 @@ pub fn kraken_absorb_run(
     }
 
     let mut seen_match_ids: HashSet<String> = HashSet::new();
-    let mut matches_per_player: HashMap<String, usize> = HashMap::new();
     let mut downloaded_matches: usize = 0;
     let mut written_matches: usize = 0;
     let start = Instant::now();
@@ -143,7 +145,12 @@ pub fn kraken_absorb_run(
         .map(|mins| Duration::from_secs(mins * 60));
     let mut last_log = Instant::now();
 
-    let max_new_focus = 2usize;
+    // AJUSTE: aumentar max_new_focus según el modo
+    let max_new_focus = match mode {
+        KrakenMode::Explore => 10,  // Agregar todos los jugadores
+        KrakenMode::Focus => 5,     // Balance entre diversidad y profundidad
+        KrakenMode::SeedOnly => 0,
+    };
 
     while !queue.is_empty() && start.elapsed() < max_duration {
         if let Some(max_total) = args.max_matches_total {
@@ -159,13 +166,28 @@ pub fn kraken_absorb_run(
         }
 
         if last_log.elapsed() >= Duration::from_secs(args.log_interval_secs) {
+            // MEJORADO: logging con métricas de cobertura
+            let avg_matches_per_player = if !matches_per_player.is_empty() {
+                matches_per_player.values().sum::<usize>() as f64 
+                    / matches_per_player.len() as f64
+            } else {
+                0.0
+            };
+            
+            let profiles_with_10plus = matches_per_player
+                .values()
+                .filter(|&&count| count >= 10)
+                .count();
+            
             eprintln!(
-                "[kraken-absorb] elapsed={}s fetched={} written={} queue={} seen_players={} max_req_per_2min={}",
+                "[kraken-absorb] elapsed={}s fetched={} written={} queue={} seen_players={} profiles_10+={} avg_matches/player={:.1} max_req_per_2min={}",
                 start.elapsed().as_secs(),
                 downloaded_matches,
                 written_matches,
                 queue.len(),
                 seen_puuids.len(),
+                profiles_with_10plus,
+                avg_matches_per_player,
                 args.max_req_per_2min
             );
             last_log = Instant::now();
@@ -213,6 +235,16 @@ pub fn kraken_absorb_run(
                 }
             };
 
+            // NUEVO: Filtro temporal - solo partidas de últimos 90 días
+            if !is_recent_match(&match_json, 90) {
+                continue;
+            }
+
+            // NUEVO: Solo partidas ranked (queue_id 420)
+            if !is_ranked_match(&match_json) {
+                continue;
+            }
+
             let write_allowed = kraken_match_passes_roles(&match_json, role_focus.as_ref());
 
             let mut new_added_this_match = 0usize;
@@ -235,6 +267,11 @@ pub fn kraken_absorb_run(
                             continue;
                         }
 
+                        // NUEVO: Priorizar jugadores con pocas partidas
+                        let current_count = *matches_per_player
+                            .get(participant_puuid)
+                            .unwrap_or(&0);
+                        
                         let enqueued = kraken_maybe_enqueue_player(
                             participant_puuid,
                             &mut seen_puuids,
@@ -244,7 +281,9 @@ pub fn kraken_absorb_run(
                             client,
                             &mode,
                             Some(max_new_focus.saturating_sub(new_added_this_match)),
+                            current_count,
                         )?;
+                        
                         if enqueued {
                             new_added_this_match += 1;
                         }
@@ -267,7 +306,40 @@ pub fn kraken_absorb_run(
         matches_per_player.insert(puuid.clone(), downloaded_for_puuid);
     }
 
+    // NUEVO: Estadísticas finales de cobertura
+    print_coverage_stats(&matches_per_player, written_matches);
+
     Ok(())
+}
+
+// NUEVO: Verificar si la partida es reciente
+fn is_recent_match(match_json: &Value, max_age_days: i64) -> bool {
+    if let Some(game_creation) = match_json
+        .get("info")
+        .and_then(|info| info.get("gameCreation"))
+        .and_then(|gc| gc.as_i64())
+    {
+        let now_millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        
+        let cutoff = now_millis - (max_age_days * 24 * 60 * 60 * 1000);
+        return game_creation >= cutoff;
+    }
+    true  // Si no hay timestamp, incluir por seguridad
+}
+
+// NUEVO: Verificar si es partida ranked
+fn is_ranked_match(match_json: &Value) -> bool {
+    if let Some(queue_id) = match_json
+        .get("info")
+        .and_then(|info| info.get("queueId"))
+        .and_then(|qid| qid.as_i64())
+    {
+        return queue_id == 420;  // Solo Ranked Solo/Duo
+    }
+    false
 }
 
 fn kraken_match_passes_roles(match_json: &Value, role_focus: Option<&HashSet<String>>) -> bool {
@@ -300,6 +372,7 @@ fn kraken_match_passes_roles(match_json: &Value, role_focus: Option<&HashSet<Str
     false
 }
 
+// MODIFICADO: Agregar priorización por count de partidas
 fn kraken_maybe_enqueue_player(
     puuid: &str,
     seen_puuids: &mut HashSet<String>,
@@ -309,6 +382,7 @@ fn kraken_maybe_enqueue_player(
     client: &RiotClient,
     mode: &KrakenMode,
     remaining_focus_slots: Option<usize>,
+    current_match_count: usize,
 ) -> Result<bool, Box<dyn Error>> {
     if seen_puuids.contains(puuid) {
         return Ok(false);
@@ -341,8 +415,46 @@ fn kraken_maybe_enqueue_player(
     }
 
     seen_puuids.insert(puuid.to_string());
-    queue.push_back(puuid.to_string());
+    
+    // NUEVO: Priorizar jugadores con pocas partidas (< 10)
+    // Los agregamos al frente para procesarlos antes
+    if current_match_count < 10 {
+        queue.push_front(puuid.to_string());
+    } else {
+        queue.push_back(puuid.to_string());
+    }
+    
     Ok(true)
+}
+
+// NUEVO: Imprimir estadísticas de cobertura
+fn print_coverage_stats(
+    matches_per_player: &HashMap<String, usize>,
+    total_matches: usize,
+) {
+    eprintln!("\n=== Coverage Statistics ===");
+    
+    let total_players = matches_per_player.len();
+    let profiles_5plus = matches_per_player.values().filter(|&&c| c >= 5).count();
+    let profiles_10plus = matches_per_player.values().filter(|&&c| c >= 10).count();
+    let profiles_20plus = matches_per_player.values().filter(|&&c| c >= 20).count();
+    
+    eprintln!("Total unique players: {}", total_players);
+    eprintln!("Profiles with 5+ matches: {} ({:.1}%)", 
+              profiles_5plus, profiles_5plus as f64 / total_players as f64 * 100.0);
+    eprintln!("Profiles with 10+ matches: {} ({:.1}%)", 
+              profiles_10plus, profiles_10plus as f64 / total_players as f64 * 100.0);
+    eprintln!("Profiles with 20+ matches: {} ({:.1}%)", 
+              profiles_20plus, profiles_20plus as f64 / total_players as f64 * 100.0);
+    
+    if total_players > 0 {
+        let sum: usize = matches_per_player.values().sum();
+        let avg = sum as f64 / total_players as f64;
+        eprintln!("Average matches per player: {:.1}", avg);
+    }
+    
+    eprintln!("Total matches written: {}", total_matches);
+    eprintln!("===========================\n");
 }
 
 fn save_match(out_dir: &PathBuf, match_id: &str, match_json: &Value) -> Result<(), Box<dyn Error>> {

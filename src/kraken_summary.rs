@@ -155,13 +155,14 @@ pub fn kraken_summary_player(
             col("puuid").n_unique().alias("players"),
         ])
         .collect()?;
-    let rows = basic.column("rows").ok().and_then(|c| c.get(0).ok());
-    let matches = basic.column("matches").ok().and_then(|c| c.get(0).ok());
-    let players = basic.column("players").ok().and_then(|c| c.get(0).ok());
-    println!(
-        "Rows / matches / players: rows={:?} matches={:?} players={:?}",
-        rows, matches, players
-    );
+
+    let rows = basic.column("rows")?.u32()?.get(0).unwrap_or(0);
+    let matches = basic.column("matches")?.u32()?.get(0).unwrap_or(0);
+    let players = basic.column("players")?.u32()?.get(0).unwrap_or(0);
+
+    println!("Rows: {}", rows);
+    println!("Matches: {}", matches);
+    println!("Players: {}", players);
 
     let queue_dist = lf
         .clone()
@@ -176,16 +177,16 @@ pub fn kraken_summary_player(
             },
         )
         .collect()?;
-    println!("Queue distribution:\n{}", queue_dist);
+    println!("\nQueue distribution:\n{}", queue_dist);
 
     let side_win = lf
         .clone()
         .filter(col("queue_id").eq(lit(420)))
         .group_by([col("team_id")])
-        .agg([col("team_win").cast(DataType::Float64).mean().alias("win_rate")])
+        .agg([col("win").cast(DataType::Float64).mean().alias("win_rate")])
         .sort("team_id", SortOptions::default())
         .collect()?;
-    println!("SoloQ side winrate:\n{}", side_win);
+    println!("\nSoloQ side winrate:\n{}", side_win);
 
     let role_dist = lf
         .clone()
@@ -200,7 +201,7 @@ pub fn kraken_summary_player(
             },
         )
         .collect()?;
-    println!("Role distribution:\n{}", role_dist);
+    println!("\nRole distribution:\n{}", role_dist);
 
     if by_role {
         let role_stats = lf
@@ -227,7 +228,7 @@ pub fn kraken_summary_player(
             ])
             .sort("role", SortOptions::default())
             .collect()?;
-        println!("Per-role stats:\n{}", role_stats);
+        println!("\nPer-role stats:\n{}", role_stats);
     }
 
     if let Some(k) = by_champion_top_k {
@@ -248,7 +249,7 @@ pub fn kraken_summary_player(
             )
             .limit(k.try_into().unwrap_or(u32::MAX))
             .collect()?;
-        println!("Top champions:\n{}", champ_stats);
+        println!("\nTop champions:\n{}", champ_stats);
     }
 
     Ok(())
@@ -272,7 +273,12 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
             col("match_id").n_unique().alias("matches"),
         ])
         .collect()?;
-    println!("Rows / matches:\n{}", basic);
+
+    let rows = basic.column("rows")?.u32()?.get(0).unwrap_or(0);
+    let matches = basic.column("matches")?.u32()?.get(0).unwrap_or(0);
+
+    println!("Rows: {}", rows);
+    println!("Matches: {}", matches);
 
     let side_win = lf
         .clone()
@@ -281,7 +287,7 @@ pub fn kraken_summary_team(parquet_path: &Path, max_rows: Option<usize>) -> Resu
         .agg([col("team_win").cast(DataType::Float64).mean().alias("win_rate")])
         .sort("team_id", SortOptions::default())
         .collect()?;
-    println!("SoloQ team winrate:\n{}", side_win);
+    println!("\nSoloQ team winrate:\n{}", side_win);
 
     Ok(())
 }
