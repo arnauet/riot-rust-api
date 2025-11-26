@@ -1,3 +1,0 @@
-    Finished `release` profile [optimized] target(s) in 0.14s
-     Running `target/release/riot-rust-api kraken-absorb --seed-file seeds_euw.txt --out-dir data/raw/kraken_ml --duration-mins 10080 --max-req-per-2min 85 --max-matches-per-player 20 --max-matches-total 1000000`
-Failed to create Riot API client: environment variable not found
